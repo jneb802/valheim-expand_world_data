@@ -1,0 +1,20 @@
+<Project>
+  <!-- Local Mac build only. Keep this file off the upstream fix branch. -->
+  <PropertyGroup>
+    <GameRoot>$(HOME)/Library/Application Support/Steam/steamapps/common/Valheim</GameRoot>
+    <GameManaged>$(GameRoot)/Valheim.app/Contents/Resources/Data/Managed</GameManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Update="@(Reference)">
+      <HintPath>$(GameManaged)/%(Identity).dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Update="assembly_valheim;assembly_utils;assembly_guiutils;SoftReferenceableAssets">
+      <HintPath>$(GameManaged)/publicized_assemblies/%(Identity)_publicized.dll</HintPath>
+    </Reference>
+    <Reference Update="BepInExll"><HintPath>$(GameRoot)/BepInEx/core/BepInEx.dll</HintPath></Reference>
+    <Reference Update="0Harmony;BepInEx.Harmony"><HintPath>$(GameRoot)/BepInEx/core/%(Identity).dll</HintPath></Reference>
+    <Reference Update="YamlDotNet"><HintPath>$(GameRoot)/BepInEx/plugins/ValheimModding-YamlDotNet/YamlDotNet.dll</HintPath></Reference>
+  </ItemGroup>
+  <Target Name="CopyDLL" />
+</Project>
