@@ -2,9 +2,10 @@ using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using UnityEngine;
-using Service;
+using Common;
+using ExpandWorldData.Data;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Dungeon;
 
 // Note: 
 // Ghost init is already set by ZoneSystem.SpawnObject.
@@ -20,7 +21,7 @@ public class RoomSpawning
   public static Dictionary<string, DungeonDB.RoomData> Prefabs = [];
 
   public static Dictionary<Room, Vector3> RoomSizes = [];
-  public static Dictionary<DungeonDB.RoomData, RoomData> Data = [];
+  public static Dictionary<DungeonDB.RoomData, RoomYaml> Data = [];
   public static Dictionary<DungeonDB.RoomData, string> Blueprints = [];
 
   private static bool IsBaseRoom(DungeonDB.RoomData room)
@@ -61,7 +62,7 @@ public class RoomSpawning
     foreach (var room in DungeonGenerator.m_placedRooms)
       room.name = Parse.Name(room.name);
     // Blueprints add a dummy room which shouldn't be saved.
-    DungeonGenerator.m_placedRooms = DungeonGenerator.m_placedRooms.Where(r => DungeonDB.instance.GetRoom(r.GetHash()) != null).ToList();
+    DungeonGenerator.m_placedRooms = [.. DungeonGenerator.m_placedRooms.Where(r => DungeonDB.instance.GetRoom(r.GetHash()) != null)];
   }
 
 
@@ -91,5 +92,4 @@ public class RoomSpawning
     size *= 0.5f;
     return bounds.Contains(pos + rot * new Vector3(size.x, size.y, -size.z)) && bounds.Contains(pos + rot * new Vector3(-size.x, size.y, -size.z)) && bounds.Contains(pos + rot * new Vector3(size.x, size.y, size.z)) && bounds.Contains(pos + rot * new Vector3(-size.x, size.y, size.z)) && bounds.Contains(pos + rot * new Vector3(size.x, -size.y, -size.z)) && bounds.Contains(pos + rot * new Vector3(-size.x, -size.y, -size.z)) && bounds.Contains(pos + rot * new Vector3(size.x, -size.y, size.z)) && bounds.Contains(pos + rot * new Vector3(-size.x, -size.y, size.z));
   }
-
 }

@@ -1,18 +1,31 @@
 ﻿using System;
 using BepInEx;
+using BepInEx.Bootstrap;
 using Data;
 using HarmonyLib;
 using Service;
+using Common;
 using UnityEngine;
+using ExpandWorldData.Biome;
+using ExpandWorldData.Clutter;
+using ExpandWorldData.Features;
+using ExpandWorldData.Dungeon;
+using ExpandWorldData.Environment;
+using ExpandWorldData.Territory;
+using ExpandWorldData.World;
+using ExpandWorldData.Data;
+using ExpandWorldData.Locations;
+using ExpandWorldData.AltBiomes;
+using ExpandWorldData.Vegetation;
+using ExpandWorldData.Migration;
 namespace ExpandWorldData;
 
 [BepInPlugin(GUID, NAME, VERSION)]
-[BepInIncompatibility("expand_world")]
 public class EWD : BaseUnityPlugin
 {
   public const string GUID = "expand_world_data";
   public const string NAME = "Expand World Data";
-  public const string VERSION = "1.57";
+  public const string VERSION = "1.79.1";
 #nullable disable
   public static EWD Instance;
   public static Harmony Harmony;
@@ -24,25 +37,21 @@ public class EWD : BaseUnityPlugin
     ModRequired = true,
     IsLocked = true
   };
-  public void InvokeRegenerate()
-  {
-    // Nothing to regenerate because the world hasn't been generated yet.
-    if (WorldGenerator.instance?.m_world?.m_menu != false) return;
-    // Debounced for smooth config editing.
-    CancelInvoke("Regenerate");
-    Invoke("Regenerate", 1.0f);
-  }
-  public void Regenerate() => WorldInfo.AutomaticRegenerate(Harmony);
   public void Awake()
   {
     Instance = this;
     Log.Init(Logger);
     Yaml.Init();
-    BiomeManager.SetupBiomeArrays();
-    ConfigWrapper wrapper = new("expand_config", Config, ConfigSync, InvokeRegenerate);
-    Configuration.Init(wrapper);
+    Refresh.Register(Regen.Patches, () => Patcher.Update(Harmony));
+    Refresh.Register(Regen.Water, WaterColor.Regenerate);
+    var initialRevision = Migrations.ReadRevision(Config.ConfigFilePath);
+    var movedSettings = ConfigMoves.Read(Config);
+    ConfigWrapper wrapper = new("expand_config", Config, ConfigSync, () => Refresh.Request(Regen.World));
+    Configuration.Init(wrapper, initialRevision);
+    ConfigMoves.Apply(Config, movedSettings);
+    LegacyEventsConfiguration.Migrate(Config);
     Harmony = new(GUID);
-    Harmony.PatchAll();
+    Patcher.Initialize(Harmony);
     try
     {
       if (!System.IO.Directory.Exists(Yaml.BaseDirectory))
@@ -51,16 +60,22 @@ public class EWD : BaseUnityPlugin
       {
         Yaml.SetupWatcher(Config);
         DataLoading.SetupWatcher();
-        BiomeManager.SetupWatcher();
-        LocationLoading.SetupWatcher();
-        VegetationLoading.SetupWatcher();
-        WorldManager.SetupWatcher();
-        ClutterManager.SetupWatcher();
-        EnvironmentManager.SetupWatcher();
-        Dungeon.Loader.SetupWatcher();
-        RoomLoading.SetupWatcher();
         BlueprintManager.SetupBlueprintWatcher();
       }
+      BiomeManager.SetupWatcher();
+      TerritoryManager.SetupWatcher();
+      LocationManager.SetupWatcher();
+      VegetationManager.SetupWatcher();
+      WorldManager.SetupWatcher();
+      ClutterManager.SetupWatcher();
+      EnvironmentManager.SetupWatcher();
+      AltBiomeManager.SetupWatcher();
+      DungeonManager.SetupWatcher();
+      RoomManager.SetupWatcher();
+      Spawn.SpawnManager.SetupWatcher();
+      Event.EventManager.SetupWatcher();
+      PersistentEvents.PersistentEventManager.SetupWatcher();
+      Drop.DropManager.SetupWatcher();
     }
     catch (Exception e)
     {
@@ -69,11 +84,29 @@ public class EWD : BaseUnityPlugin
   }
   public void Start()
   {
+    if (Chainloader.PluginInfos.ContainsKey("expand_world_events") && !Configuration.DataEvents)
+    {
+      Configuration.configDataEvents.Value = true;
+    }
+    if (Chainloader.PluginInfos.ContainsKey("expand_world_spawns"))
+    {
+      if (!Configuration.DataSpawns)
+      {
+        Configuration.configDataSpawns.Value = true;
+      }
+      Configuration.configDataDrops.Value = true;
+    }
     BiomeManager.NamesFromFile();
     new DebugCommands();
   }
   public void LateUpdate()
   {
+    if (Yaml.WorldLoading && Yaml.WorldLoadedAt != DateTime.MaxValue)
+    {
+      Yaml.WorldLoadedAt = DateTime.UtcNow;
+      Yaml.WorldLoading = false;
+    }
+    Refresh.Tick(Time.deltaTime);
     WaterColor.Transition(Time.deltaTime);
   }
 

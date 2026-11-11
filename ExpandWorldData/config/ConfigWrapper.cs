@@ -7,6 +7,11 @@ using ServerSync;
 
 namespace Service;
 
+internal class HiddenAttributes
+{
+  public bool? Browsable = false;
+}
+
 public class ConfigWrapper
 {
 
@@ -43,6 +48,8 @@ public class ConfigWrapper
     }, optionsFetcher: () => SettingHandlers.Keys.ToList());
   }
   public CustomSyncedValue<string> AddValue(string identifier) => new(ConfigSync, identifier);
+  // Internal state: not shown in config managers and not synced.
+  public ConfigEntry<T> BindHidden<T>(string group, string name, T value) => ConfigFile.Bind(group, name, value, new ConfigDescription("Internal state, don't edit.", null, new HiddenAttributes()));
   public ConfigEntry<bool> BindLocking(string group, string name, bool value, ConfigDescription description)
   {
     var configEntry = ConfigFile.Bind(group, name, value, description);

@@ -3,6 +3,20 @@ using BepInEx;
 using BepInEx.Configuration;
 using ServerSync;
 using Service;
+using Common;
+using ExpandWorldData.Biome;
+using ExpandWorldData.AltBiomes;
+using ExpandWorldData.Clutter;
+using ExpandWorldData.Environment;
+using ExpandWorldData.Territory;
+using ExpandWorldData.World;
+using ExpandWorldData.Data;
+using ExpandWorldData.Locations;
+using ExpandWorldData.Vegetation;
+using ExpandWorldData.Dungeon;
+using ExpandWorldData.Event;
+using ExpandWorldData.Spawn;
+using ExpandWorldData.Drop;
 
 namespace ExpandWorldData;
 
@@ -15,10 +29,26 @@ public partial class Configuration
   public static bool SplitDataPerMod => configSplitDataPerMod.Value;
   public static ConfigEntry<bool> configLegacyGeneration;
   public static bool LegacyGeneration => configLegacyGeneration.Value;
-  public static ConfigEntry<bool> configRegenerateMap;
-  public static bool RegenerateMap => configRegenerateMap.Value;
   public static ConfigEntry<bool> configCustomWaterColor;
   public static bool CustomWaterColor => configCustomWaterColor.Value;
+  public static ConfigEntry<bool> configDataEvents;
+  public static bool DataEvents => configDataEvents.Value;
+  public static ConfigEntry<bool> configDataPersistentEvents;
+  public static bool DataPersistentEvents => configDataPersistentEvents.Value;
+  public static ConfigEntry<bool> configDataSpawns;
+  public static bool DataSpawns => configDataSpawns.Value;
+  public static ConfigEntry<bool> configDataDrops;
+  public static bool DataDrops => configDataDrops.Value;
+  public static ConfigEntry<bool> configMultipleEvents;
+  public static bool MultipleEvents => configMultipleEvents.Value;
+  public static ConfigEntry<bool> configCheckPerPlayer;
+  public static bool CheckPerPlayer => configCheckPerPlayer.Value;
+  public static ConfigEntry<string> configEventMinimumDistance;
+  public static float EventMinimumDistance => ConfigWrapper.Floats[configEventMinimumDistance];
+  public static ConfigEntry<string> configEventChance;
+  public static float EventChance => ConfigWrapper.Floats[configEventChance];
+  public static ConfigEntry<string> configEventInterval;
+  public static float EventInterval => ConfigWrapper.Floats[configEventInterval];
 
   public static ConfigEntry<bool> configZoneSpawners;
   public static bool ZoneSpawners => configZoneSpawners.Value;
@@ -49,14 +79,23 @@ public partial class Configuration
 
 
   public static CustomSyncedValue<string> valueBiomeData;
+  public static CustomSyncedValue<string> valueTerritoryData;
   public static CustomSyncedValue<string> valueWorldData;
   public static CustomSyncedValue<string> valueClutterData;
   public static CustomSyncedValue<string> valueEnvironmentData;
   public static CustomSyncedValue<string> valueNoBuildData;
+  public static CustomSyncedValue<string> valueLocationClientData;
+  public static CustomSyncedValue<string> valueSpawnData;
+  public static CustomSyncedValue<string> valueAltBiomeData;
+  public static CustomSyncedValue<string> valueEventData;
+  public static CustomSyncedValue<string> valuePersistentEventData;
+  public static CustomSyncedValue<string> valueDropData;
   public static ConfigEntry<bool> configDataEnvironments;
   public static bool DataEnvironments => configDataEnvironments.Value;
   public static ConfigEntry<bool> configDataVegetation;
   public static bool DataVegetation => configDataVegetation.Value;
+  public static ConfigEntry<bool> configDataAltBiomes;
+  public static bool DataAltBiomes => configDataAltBiomes.Value;
   public static ConfigEntry<bool> configDataClutter;
   public static bool DataClutter => configDataClutter.Value;
   public static ConfigEntry<bool> configDataDungeons;
@@ -68,10 +107,13 @@ public partial class Configuration
   public static bool DataLocation => configDataLocation.Value;
   public static ConfigEntry<bool> configDataBiome;
   public static bool DataBiome => configDataBiome.Value;
+  public static ConfigEntry<bool> configDataTerritory;
+  public static bool DataTerritory => configDataTerritory.Value;
   public static ConfigEntry<bool> configDataWorld;
   public static bool DataWorld => configDataWorld.Value;
   public static ConfigEntry<bool> configDataMigration;
   public static bool DataMigration => configDataMigration.Value;
+  public static ConfigEntry<int> configDataRevision;
   public static ConfigEntry<bool> configDataReload;
   public static bool DataReload => configDataReload.Value;
 
@@ -80,60 +122,93 @@ public partial class Configuration
   public static string BlueprintLocalFolder => Path.Combine(Paths.ConfigPath, configBlueprintFolder.Value);
 #nullable enable
 
-  public static void Init(ConfigWrapper wrapper)
+  public static void Init(ConfigWrapper wrapper, int initialRevision)
   {
     var section = "1. General";
-    configRegenerateMap = wrapper.Bind(section, "Regenerate map", true, false, "If true, the world map is regenerated automatically on data changes.");
     configServerOnly = wrapper.Bind(section, "Server only", false, false, "If true, enables server side only mode and clients can't have the mod installed.");
     configLegacyGeneration = wrapper.Bind(section, "Legacy generation", false, true, "Old Expand World had a bug that cause incorrect generation near biome borders. Set this true for older worlds.");
+    configLegacyGeneration.SettingChanged += (s, e) => Refresh.Request(Regen.Patches);
     configZoneSpawners = wrapper.Bind(section, "Zone spawners", true, false, "If disabled, zone spawners are not generated.");
+    configZoneSpawners.SettingChanged += (s, e) => Refresh.Request(Regen.Patches);
     configRandomLocations = wrapper.Bind(section, "Random locations", false, false, "If true, all locations have a random generation instead of depending on the location coordinates.");
 
     section = "2. Features";
-
     configDistanceWiggleLength = wrapper.BindFloat(section, "Distance wiggle length", 500f, false);
-    configDistanceWiggleLength.SettingChanged += (s, e) => WorldManager.FromFile();
+    configDistanceWiggleLength.SettingChanged += (s, e) => WorldManager.Reload();
     configDistanceWiggleWidth = wrapper.BindFloat(section, "Distance wiggle width", 0.01f, false);
-    configDistanceWiggleWidth.SettingChanged += (s, e) => WorldManager.FromFile();
+    configDistanceWiggleWidth.SettingChanged += (s, e) => WorldManager.Reload();
     configWiggleFrequency = wrapper.BindFloat(section, "Wiggle frequency", 20f, false, "How many wiggles are per each circle.");
-    configWiggleFrequency.SettingChanged += (s, e) => WorldManager.FromFile();
+    configWiggleFrequency.SettingChanged += (s, e) =>
+    {
+      WorldManager.Reload();
+      Refresh.Request(Regen.Patches);
+    };
     configWiggleWidth = wrapper.BindFloat(section, "Wiggle width", 100f, false, "How many meters are the wiggles.");
-    configWiggleWidth.SettingChanged += (s, e) => WorldManager.FromFile();
+    configWiggleWidth.SettingChanged += (s, e) => WorldManager.Reload();
     configScaleLocationAltitudeRequirement = wrapper.Bind(section, "Scale location altitude requirement", false, false, "If true, location requirements are scaled based on the biome altitude delta and multiplier.");
+    configScaleLocationAltitudeRequirement.SettingChanged += (s, e) => Refresh.Request(Regen.Patches);
     configCustomWaterColor = wrapper.Bind(section, "Custom water color", false, false, "If true, custom water color system is enabled.");
+    configCustomWaterColor.SettingChanged += (s, e) => Refresh.Request(Regen.Patches | Regen.Water);
 
     section = "3. Data";
-    configDataReload = wrapper.Bind(section, "Automatic data reload", true, false, "Data is loaded automatically on file changes. Requires restart to take effect.");
-    configSplitDataPerMod = wrapper.Bind(section, "Split data per mod", true, false, "If true, created data is saved to multiple files. If false, all data is saved in one file.");
-    configDataMigration = wrapper.Bind(section, "Automatic data migration", true, false, "Automatically add missing location, rooms and vegetation entries.");
-    configDataEnvironments = wrapper.Bind(section, "Environment data", true, false, "Use environment data");
-    configDataEnvironments.SettingChanged += (s, e) => EnvironmentManager.FromSetting(valueEnvironmentData.Value);
-    configDataBiome = wrapper.Bind(section, "Biome data", true, true, "Use biome data");
-    configDataBiome.SettingChanged += (s, e) => BiomeManager.FromSetting(valueBiomeData.Value);
-    configDataClutter = wrapper.Bind(section, "Clutter data", true, false, "Use clutter data");
-    configDataClutter.SettingChanged += (s, e) => ClutterManager.FromFile();
-    configDataDungeons = wrapper.Bind(section, "Dungeon data", true, false, "Use dungeon data");
-    configDataDungeons.SettingChanged += (s, e) => Dungeon.Loader.Load();
-    configDataRooms = wrapper.Bind(section, "Room data", true, false, "Use dungeon room data");
-    configDataRooms.SettingChanged += (s, e) => RoomLoading.Load();
-    configDataWorld = wrapper.Bind(section, "World data", true, true, "Use world data");
-    configDataWorld.SettingChanged += (s, e) => WorldManager.FromSetting(valueWorldData.Value);
-    configDataLocation = wrapper.Bind(section, "Location data", true, false, "Use location data");
-    configDataLocation.SettingChanged += (s, e) => LocationLoading.Load();
-    configDataVegetation = wrapper.Bind(section, "Vegetation data", true, false, "Use vegetation data");
-    configDataVegetation.SettingChanged += (s, e) => VegetationLoading.Load();
+    configDataReload = wrapper.Bind(section, "Automatic data reload", true, false, "Data is loaded automatically on file changes. Requires restart to take effect.", synchronizedSetting: false);
+    configSplitDataPerMod = wrapper.Bind(section, "Split data per mod", true, false, "If true, created data is saved to multiple files. If false, all data is saved in one file.", synchronizedSetting: false);
+    configDataMigration = wrapper.Bind(section, "Automatic data migration", true, false, "Automatically add missing location, rooms and vegetation entries.", synchronizedSetting: false);
+    configDataRevision = wrapper.BindHidden(section, "Data revision", initialRevision);
+    configDataEnvironments = wrapper.Bind(section, "Environment data", false, false, "Use environment data", synchronizedSetting: false);
+    configDataEnvironments.SettingChanged += (s, e) => EnvironmentManager.ReadConfigs();
+    configDataBiome = wrapper.Bind(section, "Biome data", false, true, "Use biome data", synchronizedSetting: false);
+    configDataBiome.SettingChanged += (s, e) => BiomeManager.ReadConfigs();
+    configDataTerritory = wrapper.Bind(section, "Territory data", false, true, "Use territory data", synchronizedSetting: false);
+    configDataTerritory.SettingChanged += (s, e) => TerritoryManager.ReadConfigs();
+    configDataClutter = wrapper.Bind(section, "Clutter data", false, false, "Use clutter data", synchronizedSetting: false);
+    configDataClutter.SettingChanged += (s, e) => ClutterManager.ReadConfigs();
+    configDataDungeons = wrapper.Bind(section, "Dungeon data", false, false, "Use dungeon data", synchronizedSetting: false);
+    configDataDungeons.SettingChanged += (s, e) => DungeonManager.ReadConfigs();
+    configDataRooms = wrapper.Bind(section, "Room data", false, false, "Use dungeon room data", synchronizedSetting: false);
+    configDataRooms.SettingChanged += (s, e) => RoomManager.ReadConfigs();
+    configDataWorld = wrapper.Bind(section, "World data", false, true, "Use world data", synchronizedSetting: false);
+    configDataWorld.SettingChanged += (s, e) => WorldManager.ReadConfigs();
+    configDataLocation = wrapper.Bind(section, "Location data", false, false, "Use location data", synchronizedSetting: false);
+    configDataLocation.SettingChanged += (s, e) => LocationManager.ReadConfigs();
+    configDataVegetation = wrapper.Bind(section, "Vegetation data", false, false, "Use vegetation data", synchronizedSetting: false);
+    configDataVegetation.SettingChanged += (s, e) => VegetationManager.ReadConfigs();
+    configDataAltBiomes = wrapper.Bind(section, "Alt biome data", false, false, "Use alternative biome data", synchronizedSetting: false);
+    configDataAltBiomes.SettingChanged += (s, e) => AltBiomeManager.ReadConfigs();
+    configDataEvents = wrapper.Bind(section, "Event data", false, false, "Use event data.", synchronizedSetting: false);
+    configDataEvents.SettingChanged += (s, e) => EventManager.ReadConfigs();
+    configDataPersistentEvents = wrapper.Bind(section, "Persistent event data", false, false, "Use persistent event data.", synchronizedSetting: false);
+    configDataPersistentEvents.SettingChanged += (s, e) => PersistentEvents.PersistentEventManager.ReadConfigs();
+    configDataSpawns = wrapper.Bind(section, "Spawn data", false, false, "Use spawn data.", synchronizedSetting: false);
+    configDataSpawns.SettingChanged += (s, e) => SpawnManager.ReadConfigs();
+    configDataDrops = wrapper.Bind(section, "Drop data", false, false, "Use drop data.", synchronizedSetting: false);
+    configDataDrops.SettingChanged += (s, e) => DropManager.ReadConfigs();
     configBlueprintFolder = wrapper.Bind(section, "Blueprint folder", "PlanBuild", false, "Folder relative to the config folder.");
 
     valueNoBuildData = wrapper.AddValue("no_build_data");
-    valueNoBuildData.ValueChanged += () => NoBuildManager.Load(valueNoBuildData.Value);
+    valueNoBuildData.ValueChanged += () => NoBuildManager.Apply(valueNoBuildData.Value);
+    valueLocationClientData = wrapper.AddValue("location_client_data");
+    valueLocationClientData.ValueChanged += () => LocationClientData.Apply(valueLocationClientData.Value);
     valueEnvironmentData = wrapper.AddValue("environment_data");
     valueEnvironmentData.ValueChanged += () => EnvironmentManager.FromSetting(valueEnvironmentData.Value);
     valueBiomeData = wrapper.AddValue("biome_data");
     valueBiomeData.ValueChanged += () => BiomeManager.FromSetting(valueBiomeData.Value);
+    valueTerritoryData = wrapper.AddValue("territory_data");
+    valueTerritoryData.ValueChanged += () => TerritoryManager.FromSetting(valueTerritoryData.Value);
     valueClutterData = wrapper.AddValue("clutter_data");
-    valueClutterData.ValueChanged += () => ClutterManager.Set(valueClutterData.Value);
+    valueClutterData.ValueChanged += () => ClutterManager.FromSetting(valueClutterData.Value);
     valueWorldData = wrapper.AddValue("world_data");
     valueWorldData.ValueChanged += () => WorldManager.FromSetting(valueWorldData.Value);
+    valueSpawnData = wrapper.AddValue("spawn_data");
+    valueSpawnData.ValueChanged += () => SpawnManager.FromSetting(valueSpawnData.Value);
+    valueAltBiomeData = wrapper.AddValue("altbiome_data");
+    valueAltBiomeData.ValueChanged += () => AltBiomeManager.FromSetting(valueAltBiomeData.Value);
+    valueEventData = wrapper.AddValue("event_data");
+    valueEventData.ValueChanged += () => EventManager.FromSetting(valueEventData.Value);
+    valuePersistentEventData = wrapper.AddValue("persistent_event_data");
+    valuePersistentEventData.ValueChanged += () => PersistentEvents.PersistentEventManager.FromSetting(valuePersistentEventData.Value);
+    valueDropData = wrapper.AddValue("drop_data");
+    valueDropData.ValueChanged += () => DropManager.FromSetting(valueDropData.Value);
 
     section = "4. Poles";
     configRestrictAshlands = wrapper.Bind(section, "Restrict Ashlands position", true, true, "If true, restricts Ashlands biome position.");
@@ -141,5 +216,14 @@ public partial class Configuration
     configAshlandsLengthRestriction = wrapper.BindFloat(section, "Ashlands length restriction", 1000f, true, "How long/deep is the Ashlands biome (meters).");
     configAshlandsGap = wrapper.Bind(section, "Ashlands gap", true, true, "If true, Ashlands biome has an Ocean gap above it.");
     configDeepNorthGap = wrapper.Bind(section, "Deep North gap", true, true, "If true, Deep North biome has an Ocean gap below it.");
+
+    section = ConfigMoves.EventSection;
+    configMultipleEvents = wrapper.Bind(section, "Multiple events", false, false, "If enabled, multiple events can be active at the same time.");
+    configMultipleEvents.SettingChanged += (s, e) => Refresh.Request(Regen.Patches);
+    configCheckPerPlayer = wrapper.Bind(section, "Check per player", false, false, "If enabled, the event check is done separately for each player.");
+    configCheckPerPlayer.SettingChanged += (s, e) => Refresh.Request(Regen.Patches);
+    configEventMinimumDistance = wrapper.BindFloat(section, "Minimum distance between events", 100f, false, "The minimum distance between events.");
+    configEventChance = wrapper.BindFloat(section, "Random event chance", 20f, false, "The chance to try starting a random event.");
+    configEventInterval = wrapper.BindFloat(section, "Random event interval", 46f, false, "How often the random events are checked (minutes).");
   }
 }

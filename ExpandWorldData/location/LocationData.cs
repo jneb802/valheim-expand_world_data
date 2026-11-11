@@ -1,10 +1,12 @@
 using System.ComponentModel;
+using YamlDotNet.Serialization;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Locations;
 
-public class LocationData
+public class LocationYaml
 {
   public string prefab = "";
+  [YamlMember(DefaultValuesHandling = DefaultValuesHandling.Preserve)]
   public bool enabled = true;
   [DefaultValue("")]
   public string dungeon = "";
@@ -12,6 +14,9 @@ public class LocationData
   public string biome = "";
   [DefaultValue("")]
   public string biomeArea = "";
+  [DefaultValue("")]
+  public string altBiome = "";
+  [YamlMember(DefaultValuesHandling = DefaultValuesHandling.Preserve)]
   public int quantity = 0;
   [DefaultValue(0f)]
   public float minDistance = 0f;
@@ -29,12 +34,22 @@ public class LocationData
   public bool unique = false;
   [DefaultValue(false)]
   public bool randomSeed = false;
+  [DefaultValue(false)]
+  public bool pregenerate = false;
   [DefaultValue("")]
   public string group = "";
   [DefaultValue("")]
+  public string groups = "";
+  [DefaultValue("")]
   public string groupMax = "";
+  [DefaultValue(null)]
+  public Service.StringList? awayFrom = null;
+  [DefaultValue(null)]
+  public Service.StringList? closeTo = null;
   [DefaultValue(0f)]
   public float minDistanceFromSimilar = 0f;
+  [DefaultValue(0f)]
+  public float maxDistanceFromSimilar = 0f;
   [DefaultValue("")]
   public string discoverLabel = "";
   [DefaultValue("")]
@@ -43,6 +58,8 @@ public class LocationData
   public string iconPlaced = "";
   [DefaultValue(false)]
   public bool randomRotation = false;
+  [DefaultValue(false)]
+  public bool randomCardinal = false;
   [DefaultValue(false)]
   public bool slopeRotation = false;
   [DefaultValue(false)]
@@ -61,8 +78,8 @@ public class LocationData
   public float? offset = null;
   [DefaultValue(0f)]
   public float groundOffset = 0f;
-  [DefaultValue("")]
-  public string data = "";
+  [DefaultValue(null)]
+  public global::Data.DataField? data = null;
   [DefaultValue(null)]
   public string[]? objectData = null;
   [DefaultValue(null)]
@@ -81,6 +98,20 @@ public class LocationData
   public string[]? commands = null;
   [DefaultValue(0f)]
   public float exteriorRadius = 0f;
+  [DefaultValue(0f)]
+  public float interiorRadius = 0f;
+  [DefaultValue("")]
+  public string interiorEnvironment = "";
+  [DefaultValue(-1)]
+  public int enemyMinLevel = -1;
+  [DefaultValue(-1)]
+  public int enemyMaxLevel = -1;
+  [DefaultValue(-1f)]
+  public float enemyLevelUpChance = -1f;
+  [DefaultValue("")]
+  public string enemyLevelExcludeGroups = "";
+  [DefaultValue("")]
+  public string blockSpawnGroups = "";
   [DefaultValue(false)]
   public bool clearArea = false;
   [DefaultValue("")]
@@ -108,8 +139,6 @@ public class LocationData
   [DefaultValue(true)]
   public bool scaleUniform = true;
   [DefaultValue(0f)]
-  public float maxDistanceFromSimilar = 0f;
-  [DefaultValue(0f)]
   public float minVegetation = 0f;
   [DefaultValue(1f)]
   public float maxVegetation = 1f;
@@ -121,4 +150,12 @@ public class LocationData
   public int surroundCheckLayers = 2;
   [DefaultValue(0f)]
   public float surroundBetterThanAverage = 0f;
+
+  // These are used by Location Placement Accelerator.
+  [DefaultValue(false)]
+  public bool relaxableunique = false;
+  [DefaultValue(false)]
+  public bool relaxable = false;
+  [DefaultValue(0.5f)]
+  public float relaxableamount = 0.5f;
 }

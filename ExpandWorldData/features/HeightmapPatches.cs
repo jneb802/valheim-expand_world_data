@@ -1,0 +1,77 @@
+using System.Collections.Generic;
+using ExpandWorldData.Biome;
+using ExpandWorldData.World;
+using UnityEngine;
+
+namespace ExpandWorldData.Features;
+
+
+public class HeightmapPatches
+{
+  private static readonly Dictionary<Heightmap, Color32[]> cornerColors = [];
+
+  static Color32[] InitCornerColors(Heightmap __instance)
+  {
+    var center = __instance.transform.position;
+    var territory = BiomeCalculator.GetTerritory(center.x - 32f, center.z - 32f);
+    var cornerBiomes = __instance.m_cornerBiomes;
+    var c0 = territory?.colorMap ?? Heightmap.GetBiomeColor(cornerBiomes[0]);
+    territory = BiomeCalculator.GetTerritory(center.x + 32f, center.z - 32f);
+    var c1 = territory?.colorMap ?? Heightmap.GetBiomeColor(cornerBiomes[1]);
+    territory = BiomeCalculator.GetTerritory(center.x - 32f, center.z + 32f);
+    var c2 = territory?.colorMap ?? Heightmap.GetBiomeColor(cornerBiomes[2]);
+    territory = BiomeCalculator.GetTerritory(center.x + 32f, center.z + 32f);
+    var c3 = territory?.colorMap ?? Heightmap.GetBiomeColor(cornerBiomes[3]);
+    if (c0 == c1 && c0 == c2 && c0 == c3)
+      cornerColors[__instance] = [c0];
+    else
+      cornerColors[__instance] = [c0, c1, c2, c3];
+    return cornerColors[__instance];
+  }
+  internal static void RemoveCornerTerritories(Heightmap __instance)
+  {
+    cornerColors.Remove(__instance);
+  }
+  internal static void ClearCornerTerritories() => cornerColors.Clear();
+
+  private static Vector3 CalcWorld(Heightmap __instance, float ix, float iy)
+  {
+    var center = __instance.transform.position;
+    var x = center.x + (ix - 0.5f) * 64f;
+    var z = center.z + (iy - 0.5f) * 64f;
+    return new Vector3(x, 0, z);
+  }
+
+  internal static bool CustomGetBiomeColor(Heightmap __instance, float ix, float iy, ref Color __result)
+  {
+    var pos = CalcWorld(__instance, ix, iy);
+    var territory = BiomeCalculator.GetTerritory(pos.x, pos.z);
+    if (territory == null || !territory.colorTerrain.HasValue)
+      return true;
+
+    __result = territory.colorTerrain.Value;
+    return false;
+  }
+
+  // Blending didn't seem good for territories. People most likely want exact shapes.
+  private static Color GetBiomeColorFunc(Heightmap hm, float ix, float iy)
+  {
+    if (!cornerColors.TryGetValue(hm, out var colors))
+      colors = InitCornerColors(hm);
+
+    if (colors.Length == 1)
+      return colors[0];
+
+    Color32 a = Color32.Lerp(colors[0], colors[1], ix);
+    Color32 b = Color32.Lerp(colors[2], colors[3], ix);
+    return Color32.Lerp(a, b, iy);
+  }
+
+
+  internal static bool GetBiomeColor(Heightmap.Biome biome, ref Color32 __result)
+  {
+    if (!BiomeManager.TryGetData(biome, out var data)) return true;
+    __result = data.colorTerrain;
+    return false;
+  }
+}

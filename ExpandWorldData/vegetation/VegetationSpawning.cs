@@ -1,13 +1,12 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection.Emit;
 using HarmonyLib;
 using UnityEngine;
 using Data;
+using ExpandWorldData.Data;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Vegetation;
 
-[HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.PlaceVegetation))]
 public class VegetationSpawning
 {
   public static Dictionary<ZoneSystem.ZoneVegetation, VegetationExtra> Extra = [];
@@ -15,7 +14,7 @@ public class VegetationSpawning
   private static ZoneSystem.ZoneVegetation CurrentVegetation = new();
   private static ZoneSystem.SpawnMode Mode = ZoneSystem.SpawnMode.Client;
   private static List<GameObject> SpawnedObjects = [];
-  static void Prefix(ZoneSystem.SpawnMode mode, List<GameObject> spawnedObjects)
+  internal static void InitializePlacement(ZoneSystem.SpawnMode mode, List<GameObject> spawnedObjects)
   {
     Mode = mode;
     SpawnedObjects = spawnedObjects;
@@ -56,7 +55,7 @@ public class VegetationSpawning
     var scale = Vector3.one;
     if (Extra.TryGetValue(CurrentVegetation, out var extra) && extra.scale != null)
       scale = Helper.RandomValue(extra.scale);
-    Spawn.Blueprint(prefab.name, position, rotation, scale, 0, DataOverride, PrefabOverride, SpawnedObjects);
+    Create.Blueprint(prefab.name, position, rotation, scale, 0, DataOverride, PrefabOverride, SpawnedObjects);
     if (Mode == ZoneSystem.SpawnMode.Ghost)
       ZNetView.FinishGhostInit();
     // Blueprints spawn a dummy non-ZNetView object, so no extra stuff is needed.
@@ -67,11 +66,6 @@ public class VegetationSpawning
     if (Extra.TryGetValue(CurrentVegetation, out var extra) && extra.scale != null)
       scale = Helper.RandomValue(extra.scale);
     view.SetLocalScale(scale);
-    // Two fields are used for scale, so clean up the other one.
-    // This is needed because the initial spawn can set the different scale field.
-    var isUniform = Mathf.Approximately(scale.x, scale.y) && Mathf.Approximately(scale.x, scale.z);
-    if (isUniform) view.GetZDO().RemoveVec3(ZDOVars.s_scaleHash);
-    else view.GetZDO().RemoveFloat(ZDOVars.s_scaleScalarHash);
   }
   public static bool InsideClearArea(List<ZoneSystem.ClearArea> areas, Vector3 point)
   {
@@ -89,7 +83,7 @@ public class VegetationSpawning
     }
     return false;
   }
-  static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+  internal static IEnumerable<CodeInstruction> ReplacePlacementOperations(IEnumerable<CodeInstruction> instructions)
   {
     var instantiator = AccessTools.FirstMethod(typeof(Object), info => info.Name == nameof(Object.Instantiate) && info.IsGenericMethodDefinition &&
             info.GetParameters().Length == 3 &&
@@ -109,7 +103,7 @@ public class VegetationSpawning
       .Set(OpCodes.Call, Transpilers.EmitDelegate(InstantiateBlueprint).operand)
       .InstructionEnumeration();
   }
-  static void Prefix(ZoneSystem __instance)
+  internal static void UpdateGlobalKeyState(ZoneSystem __instance)
   {
     var vegs = __instance.m_vegetation;
     foreach (var veg in vegs)
@@ -118,27 +112,17 @@ public class VegetationSpawning
       if (extra.forbiddenGlobalKeys == null && extra.requiredGlobalKeys == null) continue;
       // Spawn condition only for enabled vegs.
       veg.m_enable = true;
-      if (extra.forbiddenGlobalKeys != null && Helper.HasAnyGlobalKey(extra.forbiddenGlobalKeys)) veg.m_enable = false;
-      if (extra.requiredGlobalKeys != null && !Helper.HasEveryGlobalKey(extra.requiredGlobalKeys)) veg.m_enable = false;
+      if (Service.StringList.Forbids(extra.forbiddenGlobalKeys, ZoneSystem.instance.GetGlobalKey)) veg.m_enable = false;
+      if (extra.requiredGlobalKeys != null && !Service.StringList.Pass(extra.requiredGlobalKeys, ZoneSystem.instance.GetGlobalKey)) veg.m_enable = false;
     }
   }
-}
 
-
-[HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.InsideClearArea))]
-public class InsideClearArea
-{
   // Prefix so that original method is called for other mods to patch.
-  static bool Prefix(ref bool __result, List<ZoneSystem.ClearArea> areas, Vector3 point)
+  internal static bool OverrideClearAreaCheck(ref bool __result, List<ZoneSystem.ClearArea> areas, Vector3 point)
   {
-    __result = VegetationSpawning.InsideClearArea(areas, point);
+    __result = InsideClearArea(areas, point);
     return false;
   }
-}
 
-
-[HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.ValidateVegetation))]
-public class ValidateVegetation
-{
-  static bool Prefix() => false;
+  internal static bool SkipVanillaValidation() => false;
 }

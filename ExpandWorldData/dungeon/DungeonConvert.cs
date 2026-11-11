@@ -1,14 +1,17 @@
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Service;
 using UnityEngine;
+using Common;
+using ExpandWorldData.Data;
 
 namespace ExpandWorldData.Dungeon;
 
-public partial class Loader
+public partial class DungeonManager
 {
-  public static FakeDungeonGenerator From(DungeonData data, string fileName)
+  public static FakeDungeonGenerator From(DungeonYaml data, string fileName)
   {
     FakeDungeonGenerator dg = new();
     if (Enum.TryParse<DungeonGenerator.Algorithm>(data.algorithm, true, out var algorithm))
@@ -26,19 +29,21 @@ public partial class Loader
     dg.m_campRadiusMax = data.campRadiusMax;
     dg.m_campRadiusMin = data.campRadiusMin;
     dg.m_doorChance = data.doorChance;
-    dg.m_doorTypes = data.doorTypes.Select(type => new DungeonGenerator.DoorDef()
+    dg.m_doorTypes = [.. data.doorTypes.Select(type => new DungeonGenerator.DoorDef()
     {
       m_chance = type.chance,
       m_connectionType = type.connectionType,
       m_prefab = DataManager.ToPrefab(type.prefab, fileName)
-    }).ToList();
+    }).Where(door => door.m_prefab)];
     dg.m_maxRooms = data.maxRooms;
     dg.m_minRooms = data.minRooms;
+    dg.m_maxRetries = data.maxRetries;
     dg.m_maxTilt = data.maxTilt;
     dg.m_minAltitude = data.minAltitude;
     dg.m_minRequiredRooms = data.minRequiredRooms;
-    dg.m_excludedRooms = [.. RoomLoading.ParseRooms(data.excludedRooms)];
-    dg.m_requiredRooms = RoomLoading.ParseRooms(data.requiredRooms);
+    dg.m_excludedRooms = [.. RoomManager.ParseRooms(data.excludedRooms)];
+    dg.m_requiredRooms = RoomManager.ParseRooms(data.requiredRooms);
+    dg.m_roomLimits = ParseRoomLimits(data.roomLimits);
     dg.m_themes = DataManager.ToList(data.themes);
     dg.m_tileWidth = data.tileWidth;
     dg.m_spawnChance = data.spawnChance;
@@ -46,24 +51,26 @@ public partial class Loader
     dg.m_perimeterSections = data.perimeterSections;
     dg.m_perimeterBuffer = data.perimeterBuffer;
     dg.m_useCustomInteriorTransform = data.interiorTransform;
+    dg.m_addBaseSeedToRandomSpawn = data.addBaseSeedToRandomSpawn;
     dg.m_randomSeed = data.randomSeed;
     if (data.objectSwap != null)
     {
-      dg.m_objectSwaps = Spawn.LoadSwaps(data.objectSwap);
+      dg.m_objectSwaps = Create.LoadSwaps(data.objectSwap);
       //ExpandWorldData.Log.Debug($"Loaded {dg.m_objectSwaps.Count} object swaps for {dg.name}.");
     }
     if (data.objectData != null)
-      dg.m_objectData = Spawn.LoadData(data.objectData, fileName);
+      dg.m_objectData = Create.LoadData(data.objectData, fileName);
     return dg;
   }
-  public static DungeonData To(DungeonGenerator dg)
+  public static DungeonYaml To(DungeonGenerator dg)
   {
-    DungeonData data = new()
+    DungeonYaml data = new()
     {
       name = Utils.GetPrefabName(dg.gameObject),
       algorithm = dg.m_algorithm.ToString(),
       themes = DataManager.FromEnum(dg.m_themes),
-      interiorTransform = dg.m_useCustomInteriorTransform
+      interiorTransform = dg.m_useCustomInteriorTransform,
+      addBaseSeedToRandomSpawn = dg.m_addBaseSeedToRandomSpawn
     };
     if (dg.m_zoneSize.x == dg.m_zoneSize.y && dg.m_zoneSize.y == dg.m_zoneSize.z)
       data.bounds = Helper.Print(dg.m_zoneSize.x);
@@ -72,12 +79,12 @@ public partial class Loader
     if (dg.m_algorithm == DungeonGenerator.Algorithm.Dungeon)
     {
       data.doorChance = dg.m_doorChance;
-      data.doorTypes = dg.m_doorTypes.Select(type => new DungeonDoorData()
+      data.doorTypes = [.. dg.m_doorTypes.Select(type => new DungeonDoorYaml()
       {
         chance = type.m_chance,
         connectionType = type.m_connectionType,
         prefab = Utils.GetPrefabName(type.m_prefab)
-      }).ToArray();
+      })];
       data.maxRooms = dg.m_maxRooms;
       data.minRequiredRooms = dg.m_minRequiredRooms;
       data.minRooms = dg.m_minRooms;
@@ -103,5 +110,27 @@ public partial class Loader
       data.spawnChance = dg.m_spawnChance;
     }
     return data;
+  }
+  private static DungeonRoomLimit ParseRoomLimit(string value)
+  {
+    DungeonRoomLimit limit = new();
+    foreach (var item in DataManager.ToList(value))
+    {
+      var parts = Parse.Split(item, true, ' ');
+      if (parts.Length < 2) continue;
+      var key = parts[0].ToLowerInvariant();
+      var number = Parse.Int(parts[1]);
+      if (key == "min") limit.min = number;
+      else if (key == "max") limit.max = number;
+      else if (key == "required") limit.required = number;
+      limit.required = Math.Max(limit.required, limit.min);
+    }
+    return limit;
+  }
+
+  private static Dictionary<string, DungeonRoomLimit> ParseRoomLimits(Dictionary<string, string>? limits)
+  {
+    if (limits == null) return [];
+    return limits.ToDictionary(kvp => kvp.Key, kvp => ParseRoomLimit(kvp.Value));
   }
 }

@@ -5,14 +5,54 @@ using System.Linq;
 using Data;
 using Service;
 using UnityEngine;
+using Common;
+using ExpandWorldData.Data;
+using ExpandWorldData.Compatibility;
 
 namespace ExpandWorldData;
 
 public static class Helper
 {
+
+  public static List<ZDO>? GetZDOs(Vector2s zone)
+  {
+    var zman = ZDOMan.instance;
+    zman.m_visitedSectorIndices.Clear();
+    var list = new List<ZDO>();
+    zman.FindObjects(zone, list, zman.m_visitedSectorIndices);
+    return list;
+  }
+  public static GameObject? SafeLoad(DungeonDB.RoomData room)
+  {
+    try
+    {
+      room.m_prefab.Load();
+      return room.m_prefab.Asset;
+    }
+    catch
+    {
+      Log.Warning($"Failed to load room {room.m_prefab.Name}. This is most likely issue with the mod adding the room.");
+      room.m_prefab.Release();
+      return null;
+    }
+  }
+  public static GameObject? SafeLoad(ZoneSystem.ZoneLocation loc)
+  {
+    try
+    {
+      loc.m_prefab.Load();
+      return loc.m_prefab.Asset;
+    }
+    catch
+    {
+      Log.Warning($"Failed to load location {loc.m_prefab.Name}. This is most likely issue with the mod adding the location.");
+      loc.m_prefab.Release();
+      return null;
+    }
+  }
   public static List<BlueprintObject> ParseObjects(string[] args, string fileName)
   {
-    return args.Select(s => Parse.Split(s)).Select(split => new BlueprintObject(
+    return [.. args.Select(s => Parse.Split(s)).Select(split => new BlueprintObject(
         split[0],
         Parse.VectorXZY(split, 1),
         Parse.AngleYXZ(split, 4),
@@ -20,7 +60,7 @@ public static class Helper
         DataHelper.Get(split.Length > 11 ? split[11] : "", fileName),
         Parse.Float(split, 10, 1f),
         split.Length > 3 && split[3].ToLowerInvariant() == "snap"
-      )).ToList();
+      ))];
   }
   public static float HeightToBaseHeight(float altitude) => altitude / 200f;
   public static float AltitudeToHeight(float altitude) => WorldInfo.WaterLevel + altitude;
@@ -29,7 +69,7 @@ public static class Helper
   public static bool IsServer() => ZNet.instance && ZNet.instance.IsServer();
   // Note: Intended that is client when no Znet instance (so stuff isn't loaded in the main menu).
   public static bool IsClient() => !IsServer();
-  public static Vector3 RandomValue(Range<Vector3> range)
+  public static Vector3 RandomValue(ValueRange<Vector3> range)
   {
     if (range.Uniform)
     {
@@ -48,7 +88,7 @@ public static class Helper
     }
   }
 
-  public static bool IsMultiAxis(Range<Vector3> range)
+  public static bool IsMultiAxis(ValueRange<Vector3> range)
   {
     // Same value would always return the same value.
     if (range.Min == range.Max) return false;
@@ -85,8 +125,6 @@ public static class Helper
     return items.Select(key).Distinct().ToHashSet();
   }
 
-  public static bool HasAnyGlobalKey(List<string> keys) => keys.Any(ZoneSystem.instance.m_globalKeys.Contains);
-  public static bool HasEveryGlobalKey(List<string> keys) => keys.All(ZoneSystem.instance.m_globalKeys.Contains);
 
   public static bool IsZero(float a) => Mathf.Abs(a) < 0.001f;
   public static bool Approx(float a, float b) => Mathf.Abs(a - b) < 0.001f;

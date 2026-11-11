@@ -1,53 +1,59 @@
 
 using System.Collections.Generic;
 using System.Linq;
-using HarmonyLib;
+using ExpandWorldData.Biome;
+using ExpandWorldData.Environment;
+using ExpandWorldData.Territory;
+using ExpandWorldData.Features;
+using ExpandWorldData.World;
 using Service;
 using UnityEngine;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Data;
 
 
-[HarmonyPatch(typeof(Player), nameof(Player.UpdateEnvStatusEffects))]
 public class StatusManager
 {
+  private static readonly HashSet<int> AppliedEffects = [];
   private static float DamageTimer = 0f;
   private static readonly float TickRate = 1f;
 
   private static string PreviousWeather = "";
   private static bool PreviousDay = false;
   private static Heightmap.Biome PreviousBiome = Heightmap.Biome.None;
+  private static TerritoryData? PreviousTerritory = null;
 
-  static void Postfix(Player __instance, float dt)
+  internal static void UpdateStatusEffects(Player __instance, float dt)
   {
     if (__instance != Player.m_localPlayer) return;
     DamageTimer += dt;
     var weather = EnvMan.instance.GetCurrentEnvironment()?.m_name ?? "";
     var day = EnvMan.IsDay();
-    var biome = EnvMan.instance.GetBiome();
-
-    RemoveBiomeEffects(__instance, day, biome);
+    var biome = __instance.GetCurrentBiome();
+    var territory = BiomeCalculator.GetTerritory(__instance.transform.position.x, __instance.transform.position.z);
+    RemoveBiomeEffects(__instance, day, biome, territory);
     RemoveWeatherEffects(__instance, day, weather);
-    ApplyBiomeEffects(__instance, day, biome);
+    ApplyBiomeEffects(__instance, day, biome, territory);
     ApplyWeatherEffects(__instance, day, weather);
 
     if (DamageTimer >= TickRate) DamageTimer = 0f;
     PreviousWeather = weather;
     PreviousDay = day;
     PreviousBiome = biome;
+    PreviousTerritory = territory;
   }
 
-  private static void RemoveBiomeEffects(Player player, bool day, Heightmap.Biome biome)
+  private static void RemoveBiomeEffects(Player player, bool day, Heightmap.Biome biome, TerritoryData? territory)
   {
-    if (!BiomeManager.TryGetData(PreviousBiome, out var data)) return;
-    if (biome != PreviousBiome)
+    if (!TryGetBiomeStatusEffects(PreviousBiome, PreviousTerritory, out var effects)) return;
+    if (biome != PreviousBiome || territory != PreviousTerritory)
     {
-      Remove(player, data.statusEffects);
+      Remove(player, effects);
     }
     if (day != PreviousDay)
     {
-      if (day) Remove(player, data.statusEffects.Where(s => !s.day).ToList());
-      else Remove(player, data.statusEffects.Where(s => !s.night).ToList());
+      if (day) Remove(player, effects.Where(s => !s.day).ToList());
+      else Remove(player, effects.Where(s => !s.night).ToList());
     }
   }
   private static void RemoveWeatherEffects(Player player, bool day, string weather)
@@ -63,23 +69,38 @@ public class StatusManager
       else Remove(player, data.statusEffects.Where(s => !s.night).ToList());
     }
   }
-  private static void ApplyBiomeEffects(Player player, bool day, Heightmap.Biome biome)
+  private static void ApplyBiomeEffects(Player player, bool day, Heightmap.Biome biome, TerritoryData? territory)
   {
-    if (!BiomeManager.TryGetData(biome, out var data)) return;
-    if (day) Add(player, data.statusEffects.Where(s => s.day).ToList());
-    else Add(player, data.statusEffects.Where(s => s.night).ToList());
+    if (!TryGetBiomeStatusEffects(biome, territory, out var effects)) return;
+    if (day) Add(player, [.. effects.Where(s => s.day)]);
+    else Add(player, [.. effects.Where(s => s.night)]);
   }
   private static void ApplyWeatherEffects(Player player, bool day, string weather)
   {
     if (!EnvironmentManager.Extra.TryGetValue(weather, out var data)) return;
-    if (day) Add(player, data.statusEffects.Where(s => s.day).ToList());
-    else Add(player, data.statusEffects.Where(s => s.night).ToList());
+    if (day) Add(player, [.. data.statusEffects.Where(s => s.day)]);
+    else Add(player, [.. data.statusEffects.Where(s => s.night)]);
   }
 
   private static void Remove(Player player, List<Status> es)
   {
     foreach (var statusEffect in es)
       Remove(player, statusEffect);
+  }
+  private static bool TryGetBiomeStatusEffects(Heightmap.Biome biome, TerritoryData? territory, out List<Status> effects)
+  {
+    if (territory != null && territory.statusEffects.Count > 0)
+    {
+      effects = territory.statusEffects;
+      return true;
+    }
+    if (BiomeManager.TryGetData(biome, out var biomeData))
+    {
+      effects = biomeData.statusEffects;
+      return true;
+    }
+    effects = [];
+    return false;
   }
   private static void Remove(Player player, Status es)
   {
@@ -100,14 +121,15 @@ public class StatusManager
   private static readonly int SpiritHash = "Spirit".GetStableHashCode();
   private static void Add(Player player, Status es)
   {
-    if (es.requiredGlobalKeys.Any(k => !ZoneSystem.instance.GetGlobalKey(k))) return;
-    if (es.forbiddenGlobalKeys.Any(ZoneSystem.instance.GetGlobalKey)) return;
-    if (es.requiredPlayerKeys.Any(k => !player.HaveUniqueKey(k))) return;
-    if (es.forbiddenPlayerKeys.Any(player.HaveUniqueKey)) return;
+    if (!StringList.Pass(es.requiredGlobalKeys, ZoneSystem.instance.GetGlobalKey)) return;
+    if (StringList.Forbids(es.forbiddenGlobalKeys, ZoneSystem.instance.GetGlobalKey)) return;
+    if (!StringList.Pass(es.requiredPlayerKeys, player.HaveUniqueKey)) return;
+    if (StringList.Forbids(es.forbiddenPlayerKeys, player.HaveUniqueKey)) return;
     var seman = player.GetSEMan();
     if (es.reset)
     {
       seman.AddStatusEffect(es.hash, es.reset, 0, 0);
+      AppliedEffects.Add(es.hash);
       return;
     }
     var se = ObjectDB.instance.GetStatusEffect(es.hash);
@@ -127,6 +149,7 @@ public class StatusManager
         if (!exists) damage *= TickRate * se.m_ttl;
         Log.Debug($"Adding {damage} spirit damage to {se.name}");
         seman.AddStatusEffect(es.hash, false, 0, 0);
+        AppliedEffects.Add(es.hash);
         var spirit = (SE_Burning)seman.GetStatusEffect(es.hash);
         spirit.AddSpiritDamage(damage);
       }
@@ -138,6 +161,7 @@ public class StatusManager
         if (!exists) damage *= TickRate * se.m_ttl;
         Log.Debug($"Adding {damage} fire damage to {se.name}");
         seman.AddStatusEffect(es.hash, false, 0, 0);
+        AppliedEffects.Add(es.hash);
         var burning = (SE_Burning)seman.GetStatusEffect(es.hash);
         burning.AddFireDamage(damage);
       }
@@ -151,17 +175,39 @@ public class StatusManager
       Log.Debug($"Adding {damage} poison damage to {se.name}");
 
       seman.AddStatusEffect(es.hash, false, 0, 0);
+      AppliedEffects.Add(es.hash);
       var poison = (SE_Poison)seman.GetStatusEffect(es.hash);
       poison.AddDamage(damage);
     }
     else
     {
       seman.AddStatusEffect(es.hash, false, 0, 0);
+      AppliedEffects.Add(es.hash);
       var effect = seman.GetStatusEffect(es.hash);
       effect.m_time = effect.m_ttl - es.duration;
       if (effect is SE_Shield shield)
         shield.m_absorbDamage = es.damage;
     }
+  }
+
+  public static void CleanUp()
+  {
+    var player = Player.m_localPlayer;
+    if (player)
+    {
+      var seman = player.GetSEMan();
+      foreach (var hash in AppliedEffects)
+      {
+        var effect = seman.GetStatusEffect(hash);
+        if (effect != null && effect.m_ttl <= 0f) seman.RemoveStatusEffect(hash);
+      }
+    }
+    AppliedEffects.Clear();
+    DamageTimer = 0f;
+    PreviousWeather = "";
+    PreviousDay = false;
+    PreviousBiome = Heightmap.Biome.None;
+    PreviousTerritory = null;
   }
 
   private static float CalculateDamage(SEMan seman, Status es, HitData.DamageType damageType)
@@ -206,10 +252,10 @@ public class StatusManager
 public class StatusData
 {
   public string name = "";
-  public string requiredGlobalKeys = "";
-  public string forbiddenGlobalKeys = "";
-  public string requiredPlayerKeys = "";
-  public string forbiddenPlayerKeys = "";
+  [System.ComponentModel.DefaultValue(null)] public StringList? requiredGlobalKeys = null;
+  [System.ComponentModel.DefaultValue(null)] public StringList? forbiddenGlobalKeys = null;
+  [System.ComponentModel.DefaultValue(null)] public StringList? requiredPlayerKeys = null;
+  [System.ComponentModel.DefaultValue(null)] public StringList? forbiddenPlayerKeys = null;
   public bool day = false;
   public bool night = false;
   public bool immuneWithResist = false;
@@ -230,10 +276,10 @@ public class Status
   public bool day;
   public bool night;
   public bool immuneWithResist;
-  public List<string> requiredGlobalKeys = [];
-  public List<string> forbiddenGlobalKeys = [];
-  public List<string> requiredPlayerKeys = [];
-  public List<string> forbiddenPlayerKeys = [];
+  public List<string[]> requiredGlobalKeys = [];
+  public List<string[]> forbiddenGlobalKeys = [];
+  public List<string[]> requiredPlayerKeys = [];
+  public List<string[]> forbiddenPlayerKeys = [];
   public Status(StatusData status)
   {
     hash = status.name.GetStableHashCode();
@@ -251,10 +297,10 @@ public class Status
       night = true;
     }
     immuneWithResist = status.immuneWithResist;
-    requiredGlobalKeys = DataManager.ToList(status.requiredGlobalKeys);
-    forbiddenGlobalKeys = DataManager.ToList(status.forbiddenGlobalKeys);
-    requiredPlayerKeys = DataManager.ToList(status.requiredPlayerKeys);
-    forbiddenPlayerKeys = DataManager.ToList(status.forbiddenPlayerKeys);
+    requiredGlobalKeys = StringList.ToRows(status.requiredGlobalKeys) ?? [];
+    forbiddenGlobalKeys = StringList.ToRows(status.forbiddenGlobalKeys) ?? [];
+    requiredPlayerKeys = StringList.ToRows(status.requiredPlayerKeys) ?? [];
+    forbiddenPlayerKeys = StringList.ToRows(status.forbiddenPlayerKeys) ?? [];
 
     // Custom duration is handled manually.
     // Also damage effects shouldn't be reseted (since it messed up the damage calculation).

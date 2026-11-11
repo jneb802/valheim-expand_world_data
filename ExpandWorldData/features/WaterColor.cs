@@ -1,25 +1,8 @@
-using HarmonyLib;
 using UnityEngine;
-namespace ExpandWorldData;
+using ExpandWorldData.Biome;
+using ExpandWorldData.World;
 
-[HarmonyPatch(typeof(Player), nameof(Player.AddKnownBiome))]
-public class StartColorTransition
-{
-  public static void Postfix(Heightmap.Biome biome)
-  {
-    if (Configuration.CustomWaterColor)
-      WaterColor.StartTransition(biome);
-  }
-}
-
-[HarmonyPatch(typeof(Player), nameof(Player.OnSpawned))]
-public class ResetColorTransition
-{
-  public static void Postfix()
-  {
-    WaterColor.StopTransition();
-  }
-}
+namespace ExpandWorldData.Features;
 
 public class WaterColor
 {
@@ -33,6 +16,9 @@ public class WaterColor
   public static Color TargetTopColor;
   public static Color TargetBottomColor;
   public static Color TargetShallowColor;
+
+  internal static void StartBiomeTransition(BiomeSector biome) => StartTransition(biome.Biome);
+  internal static void ResetTransition() => StopTransition();
 
   public static void Transition(float time)
   {
@@ -66,6 +52,21 @@ public class WaterColor
         TargetShallowColor = data.colorWaterShallow.Value;
       if (data.colorWaterSurface.HasValue)
         TargetSurfaceColor = data.colorWaterSurface.Value;
+    }
+    if (Player.m_localPlayer)
+    {
+      var territory = BiomeCalculator.GetTerritory(Player.m_localPlayer.transform.position.x, Player.m_localPlayer.transform.position.z);
+      if (territory != null)
+      {
+        if (territory.colorWaterTop.HasValue)
+          TargetTopColor = territory.colorWaterTop.Value;
+        if (territory.colorWaterBottom.HasValue)
+          TargetBottomColor = territory.colorWaterBottom.Value;
+        if (territory.colorWaterShallow.HasValue)
+          TargetShallowColor = territory.colorWaterShallow.Value;
+        if (territory.colorWaterSurface.HasValue)
+          TargetSurfaceColor = territory.colorWaterSurface.Value;
+      }
     }
     // Minor optimization to keep the current transition if the target doesn't change.
     if (prevBottomColor == TargetBottomColor &&

@@ -1,0 +1,217 @@
+﻿# Locations
+
+Locations are the points of interest in the world, like structures and dungeons.
+
+## Configuration
+
+The file `expand_locations.yaml` is created automatically when loading a world. Enable or disable locations from the config using the `Location data` setting. This is mostly a server side feature. Only fields marked with (synced) are sent to clients.
+
+Note: Missing locations are automatically added to the file. To disable, set `enabled` to `false` instead of removing anything.
+
+Note: Each zone (64m x 64m) can only have one size.
+
+See the [wiki](https://valheim.wiki/Point_of_Interest) for more info.
+
+Locations are pregenerated at world generation. You must use `genloc` command to redistribute them on unexplored areas after making any changes. For already explored areas, you need to use Upgrade World mod.
+
+### Location Fields
+
+- prefab: Identifier of the location object or name of [blueprint](blueprints.md) file. Check wiki for available locations. Hidden ones work too. To create a clone of an existing location, add `:text` to the prefab. For example "Dolmen01:Ghost".
+- enabled (default: `true`): Quick way to disable this entry.
+- biome: List of possible biomes.
+- biomeArea: List of possible biome areas (edge = zones with multiple biomes, median = zones with only a single biome).
+- altBiome: Name of an [alternative biome](alt-biomes.md) modifier. The location is only placed in zones with that alternative biome.
+- dungeon: Overrides the default dungeon generator with a custom one from `expand_dungeons.yaml`.
+- quantity: Maximum amount. Actual amount is determined if enough suitable positions are found. The base .cfg has a setting to multiply these.
+- minDistance (default: `0.0` of world radius): Minimum distance from the world center.
+- maxDistance (default: `0.0` of world radius): Maximum distance from the world center (0 = no limit).
+- minAltitude (default: `-1000` meters): Minimum altitude.
+- maxAltitude (default: `10000` meters): Maximum altitude.
+- prioritized (default: `false`): Generated first with more attempts.
+- centerFirst (default: `false`): Generating is attempted at world center, with gradually moving towards the world edge.
+- unique (default: `false`): When placed, all other unplaced locations are removed. Guaranteed maximum of one instance.
+- discoverLabel (synced): Shown text when the location is discovered.
+- iconAlways: Location icon that is always shown. Use `ew_icons` to see what is available.
+  - Format is `icon,size,pulse`.
+  - Size 5 or more is considered as meters. These icons scale up and down with the zoom level.
+  - Putting anything on the third value causes the icon to pulse. This is not supported with meters.
+  - Icon name StartTemple is used as the default spawn point for players. This can be used to spawn players on some other location.
+- iconPlaced: Location icon to show when the location is generated. Use `ew_icons` to see what is available.
+  - Format is `icon,size,pulse`.
+  - Size 5 or more is considered as meters. These icons scale up and down with the zoom level.
+  - Putting anything on the third value causes the icon to pulse. This is not supported with meters.
+- randomRotation (default: `false`): Randomly rotates the location (unaffected by world seed).
+- randomCardinal (default: `false`): Randomly rotates the location in cardinal directions (0, 90, 180, 270 degrees).
+- randomSeed (default: `false`): If true, the generation result is always different instead of depending on the location coordinates.
+  - This also randomizes the generated dungeon.
+  - To enable this for every location, set "Random locations" to true in the main config.
+- slopeRotation (default: `false`): Rotates based on the terrain angle. For example for locations at mountain sides.
+- snapToWater (default: `false`): Placed at the water level instead of the terrain.
+- minTerrainDelta (default: `0` meters): Minimum nearby terrain height difference.
+- maxTerrainDelta (default: `10` meters): Maximum nearby terrain height difference.
+- inForest (default: `false`): Only in forests.
+- forestTresholdMin (default: `0`): Minimum forest value (if only in forests).
+- forestTresholdMax (default: `1`): Maximum forest value (if only in forests).
+- groundOffset (default: `0` meters): Placed above the ground.
+- minVegetation (default: `0`): Minimum vegetation mask (random value from 0.0 to 1.0, only used in Ashlands and Mistlands biome).
+- maxVegetation (default: `1`): Maximum vegetation mask (random value from 0.0 to 1.0, only used in Ashlands and Mistlands biome).
+- surroundCheckVegetation (default: `false`): If enabled, the location is placed near higher vegetation mask.
+  - This is sampled within the whole firld. The check requires at least 10 samples, so the first 10 spawning attempts always fail.
+  - Recommended to use `prioritized` for more spawning attempts.
+  - The location is placed, if the surrounding vegetation mask is higher than the average mask.
+- surroundCheckDistance (default: `20` meters): Distance of the vegetation mask check.
+- surroundCheckLayers (default: `2`): How many points are checked.
+  - The distance is divided into ring shaped layers.
+  - Each layer checks 6 points around the spawn point.
+- surroundBetterThanAverage (default: `0`): How much better the mask must be than the average mask.
+  - This scales the requirement from the average mask to the highest mask.
+  - The value must be less than 1.0 because the mask can't be higher than the highest mask.
+  - Negative values can also be used.
+- data: ZDO data override. For example to change altars with Spawner Tweaks mod (`object copy` from World Edit Commands). Can be a data entry name, base64 string, shorthand `type, key, value` (for example `int, level, 3`) or an inline data mapping.
+- locationObjectSwap: Changes location objects to other objects.
+- dungeonObjectSwap: Changes dungeon objects to other objects.
+- objectSwap: Changes location and dungeon objects to other objects.
+  - See [Object swaps](custom-objects.md#object-swaps) for details.
+  - See [examples](../examples/examples.md).
+- locationObjectData: Replaces object data in the location.
+- dungeonObjectData: Replaces object data in the dungeon.
+- objectData: Replaces object data in the location and the dungeon.
+  - See [Object data](custom-objects.md#object-data) for details.
+- objects: Extra objects in the location, relative to the location center.
+  - See [Custom objects](custom-objects.md) for details.
+- randomDamage (default: `false`): If true, pieces without custom health are randomly damaged. If all, all pieces are randomly damaged.
+- exteriorRadius (synced): How many meters are cleared, leveled or no build. If not given for blueprints, this is the radius of the blueprint (+ 2 meters). If `0`, the value of the original location is used.
+  - Note: Maximum suggested value is 32 meters. Higher values go past the zone border and can cause issues.
+- interiorRadius (synced, default: `0`): Radius of the dungeon interior. If `0`, the value of the original location is used.
+- interiorEnvironment (synced): Environment inside the dungeon. Only for locations that have an interior.
+- enemyMinLevel (synced, default: `-1`): Overrides the minimum level of creature spawners in the location. Negative value disables the override.
+- enemyMaxLevel (synced, default: `-1`): Overrides the maximum level of creature spawners in the location. Negative value disables the override.
+- enemyLevelUpChance (synced, default: `-1`): Overrides the level up chance of creature spawners in the location. Negative value disables the override.
+- enemyLevelExcludeGroups (synced): List of creature spawner groups that ignore the level overrides.
+- blockSpawnGroups (synced): List of creature spawner groups that are removed from the location.
+- commands: List of commands that will be executed when spawning the location.
+  - Use `<x>`, `<y>` and `<z>` in the command to use the location center point.
+  - Use `<a>` in the command to use the location rotation.
+  - Basic arithmetic is supported. For example `<x>+10` would add 10 meters to the x coordinate.
+- clearArea (default: `false`): If true, vegetation is not placed within `exteriorRadius`.
+- noBuild (synced, default: `false`): If true, players can't build within `exteriorRadius`. If number, player can't build within the given radius. If omitted, building is allowed (even if the original location blocks it).
+- noBuildDungeon (default: `false`): If true, players can't build inside dungeons within the whole zone. If number, player can't build inside dungeons within the given radius.
+  - Note: For bigger dungeons, the number should be set manually (dungeon `bounds` divided by sqrt 2).
+- levelArea (default: `true` for blueprints): Flattens the area.
+- levelRadius (default: half of `exteriorRadius`): Size of the leveled area.
+- levelBorder (default: half of `exteriorRadius`): Adds a smooth transition around the `levelRadius`.
+- paint: Paints the terrain. Format is `dirt,cultivated,paved,vegetation` (from 0.0 to 1.0) or a pre-defined color (cultivated, dirt, grass, grass_dark, patches, paved, paved_dark, paved_dirt, paved_moss).
+- paintRadius (default: `exteriorRadius`): Size of the painted area.
+- paintBorder (default: `5`): Adds a smooth transition around the `paintRadius`.
+- scaleMin (default: `1`): Minimum scale. Number or x,z,y (with y being the height).
+  - Note: Each object is scaled independently. Distances between objects are not scaled.
+  - Note: All objects can't be scaled without using Structure Tweaks mod.
+- scaleMax (default: `1`): Maximum scale. Number or x,z,y (with y being the height).
+- scaleUniform (default: `true`): If disabled, each axis is scaled independently.
+- pregenerate (default: `false`): If true, the zone is automatically generated, even when not explored.
+  - This can be useful for Expand World Prefabs mod, if some object in the location needs to be available.
+
+## Location grouping
+
+Location placement can be grouped or spread out. There are two systems for this. EWD system was created because the original system has some limitations and can be confusing.
+
+EWD system is one way, which means that a location can be "attracted" to another location without the other location being aware of it.
+
+Keep in mind that locations are processed in load order. This means that if a location relies on another location, the other location must appear first. If multiple `expand_locations*.yaml` files are used, their relative load order also matters.
+
+- groups: List of groups names for `awayFrom` and `closeTo` checks.
+- awayFrom ([distance list](requirement-lists.md#distance-list)): Name can be either group or location prefab name.
+  - If any are found within the distance, the place is not valid.
+- closeTo ([distance list](requirement-lists.md#distance-list)): Name can be either group or location prefab name.
+  - Rows are AND and entries inside a row (commas) are OR. Every row must have a match, otherwise the place is not valid.
+
+```yaml
+# Must be at least 1000 meters away from each other.
+- prefab: LocationA
+  awayFrom:
+  - LocationA, 1000
+
+# Must be within 100 meters of LocationA.
+- prefab: LocationB
+  closeTo:
+  - LocationA, 100
+
+# Must be within 200 meters of LocationB and at least 3000 meters away from each other.
+- prefab: LocationC
+  closeTo:
+  - LocationB, 200
+  awayFrom:
+  - LocationC, 3000
+```
+
+```yaml
+- prefab: LocationA
+  groups: A, B
+
+- prefab: LocationB
+  groups: B
+  
+- prefab: LocationC
+  groups: B
+
+# Must be at least 2000 meters away from LocationA and at least 1000 meters away from LocationB+C.
+- prefab: LocationD
+  awayFrom:
+  - A, 2000
+  - B, 1000
+```
+
+Original system is effectively two way and implicitly includes the location itself in the group. This means the location will always affect itself.
+
+- group: Group name for `minDistanceFromSimilar`.
+- minDistanceFromSimilar (default: `0` meters): Required minimum distance between the same location, or locations in the `group` if given.
+  - If any are found, the place is not valid.
+- groupMax: Group name for `maxDistanceFromSimilar`.
+- maxDistanceFromSimilar (default: `0` meters): Required maximum distance between the same location, or locations in the `groupMax` if given.
+  - If none are found, the place is not valid. You need an entry without this check to get started.
+
+EWD and original systems share the groups so they can be used together. However only use one system for each entry.
+
+## Examples
+
+New location created by cloning an existing one. The field `prefab` is required (`quantity` is also needed, otherwise nothing is placed):
+
+```yaml
+- prefab: StoneCircle:Rare
+  biome: Meadows
+  quantity: 5
+  minDistanceFromSimilar: 1000
+  minAltitude: 1
+  randomRotation: true
+  maxTerrainDelta: 3
+  exteriorRadius: 16
+  clearArea: true
+```
+
+Changing the amount of an existing location:
+
+```yaml
+- prefab: StoneCircle
+  biome: Meadows
+  quantity: 50
+  minAltitude: 1
+  minDistanceFromSimilar: 200
+```
+
+Placed icon configuration:
+
+```yaml
+- prefab: Dolmen01
+  iconPlaced: Hammer,2,pulse
+```
+
+Terrain clear + level operation:
+
+```yaml
+- prefab: Dolmen01
+  exteriorRadius: 18
+  clearArea: true
+  levelArea: true
+  levelRadius: 8
+  levelBorder: 6
+```

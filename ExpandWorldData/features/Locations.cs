@@ -1,10 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
+using ExpandWorldData.Locations;
 using HarmonyLib;
 using Service;
 using UnityEngine;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Features;
 
 [HarmonyPatch(typeof(LoadingIndicator), nameof(LoadingIndicator.SetShowProgress))]
 public class GuaranteeLocations
@@ -12,11 +13,13 @@ public class GuaranteeLocations
   static void GuaranteeStartLocation(ZoneSystem zs)
   {
     var location = zs.m_locations.FirstOrDefault(loc => loc.m_prefab.Name == Game.instance.m_StartLocation);
+    if (!location.m_enable || location.m_quantity == 0)
+      return;
     if (Count(zs, location) == 0)
     {
       Log.Info($"Forcefully placing {location.m_prefab.Name} location at the center.");
       var locationRadius = Mathf.Max(location.m_exteriorRadius, location.m_interiorRadius);
-      Vector3 randomPointInZone = ZoneSystem.GetRandomPointInZone(new Vector2i(0, 0), locationRadius);
+      Vector3 randomPointInZone = ZoneSystem.GetRandomPointInZone(Vector2s.zero, locationRadius);
       zs.RegisterLocation(location, randomPointInZone, false);
     }
   }
@@ -25,13 +28,13 @@ public class GuaranteeLocations
   {
     if (show) return;
     GuaranteeStartLocation(ZoneSystem.instance);
+    CreateLocalZones.LocationsPregenerated = false;
   }
 }
 
-[HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.PlaceZoneCtrl))]
 public class PlaceZoneCtrl
 {
-  static bool Prefix() => Configuration.ZoneSpawners;
+  internal static bool SkipZoneControlPlacement() => false;
 }
 
 [HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.PlaceVegetation))]
@@ -59,10 +62,10 @@ public class ClearAreasFromAdjacentZones
   }
 }
 
-[HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.GetRandomPointInZone), typeof(Vector2i), typeof(float))]
+[HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.GetRandomPointInZone), typeof(Vector2s), typeof(float))]
 public class FixGetRandomPointInZone
 {
-  static Vector3 Postfix(Vector3 result, Vector2i zone, float locationRadius)
+  static Vector3 Postfix(Vector3 result, Vector2s zone, float locationRadius)
   {
     // If fits inside the zone, vanilla code works.
     if (locationRadius < 32f) return result;

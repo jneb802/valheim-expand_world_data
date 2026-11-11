@@ -1,46 +1,47 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Emit;
+using ExpandWorldData.Compatibility;
+using ExpandWorldData.Biome;
+using ExpandWorldData.Territory;
+using ExpandWorldData.World;
 using HarmonyLib;
 using UnityEngine;
-namespace ExpandWorldData;
 
+namespace ExpandWorldData.Features;
 
-[HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.WorldAngle))]
 public class WorldAngle
 {
-  static bool Prefix(float wx, float wy, ref float __result)
+  internal static bool CalculateAngle(float wx, float wy, ref float __result)
   {
     __result = Mathf.Sin(Mathf.Atan2(wx, wy) * Configuration.WiggleFrequency);
     return false;
   }
 }
 
-[HarmonyPatch(typeof(Heightmap), nameof(Heightmap.GetBiomeColor), new[] { typeof(Heightmap.Biome) })]
-public class GetBiomeColor
+public class GetPixelColor
 {
-  static bool Prefix(Heightmap.Biome biome, ref Color32 __result)
+  internal static bool ApplyCustomColor(Heightmap.Biome biome, ref Color __result)
   {
-    if (!BiomeManager.TryGetData(biome, out var data)) return true;
-    __result = data.colorTerrain;
-    return false;
+    var territory = BiomeCalculator.GetTerritory(BiomeHeight.LastX, BiomeHeight.LastY);
+    if (territory != null && territory.colorMap.HasValue)
+    {
+      __result = territory.colorMap.Value;
+      return false;
+    }
+    if (BiomeManager.TryGetData(biome, out var data))
+    {
+      __result = data.colorMap;
+      return false;
+    }
+    return true;
   }
 }
 
-[HarmonyPatch(typeof(Minimap), nameof(Minimap.GetPixelColor))]
-public class GetMapColor
-{
-  static bool Prefix(Heightmap.Biome biome, ref Color __result)
-  {
-    if (!BiomeManager.TryGetData(biome, out var data)) return true;
-    __result = data.colorMap;
-    return false;
-  }
-}
-
-[HarmonyPatch(typeof(Heightmap), nameof(Heightmap.GetBiome))]
 public class GetBiomeHM
 {
   public static bool Nature = false;
-  static Heightmap.Biome Postfix(Heightmap.Biome biome)
+  internal static Heightmap.Biome ApplyNatureBiome(Heightmap.Biome biome)
   {
     if (Nature) return BiomeManager.GetNature(biome);
     return biome;
@@ -48,11 +49,10 @@ public class GetBiomeHM
 }
 
 
-[HarmonyPatch(typeof(Heightmap), nameof(Heightmap.FindBiome))]
 public class HeightmapFindBiome
 {
   public static bool Nature = false;
-  static Heightmap.Biome Postfix(Heightmap.Biome biome)
+  internal static Heightmap.Biome ApplyNatureBiome(Heightmap.Biome biome)
   {
     if (Nature) return BiomeManager.GetNature(biome);
     return biome;
@@ -68,13 +68,27 @@ public class ResetBiomeOffsets
   }
 }
 
-[HarmonyPatch(typeof(Minimap), nameof(Minimap.GetMaskColor))]
 public class GetMaskColor
 {
-  static void Prefix(ref Heightmap.Biome biome)
+  internal static void ApplyTerrain(ref Heightmap.Biome biome)
   {
     biome = BiomeManager.GetTerrain(biome);
   }
+}
+
+public class GenerateWorldMapHeight
+{
+
+  static float ModifyHeight(float height, Heightmap.Biome biome) => Api.GetMinimapHeight(height, biome);
+
+  internal static IEnumerable<CodeInstruction> ApplyMapColorMultiplier(IEnumerable<CodeInstruction> instructions) =>
+    new CodeMatcher(instructions).MatchForward(true, new CodeMatch(OpCodes.Call, AccessTools.Method(typeof(Minimap), nameof(Minimap.GetMaskColor))))
+    .InsertAndAdvance(new CodeInstruction(OpCodes.Ldloc_S, 13))
+    .InsertAndAdvance(new CodeInstruction(OpCodes.Ldloc_S, 12))
+    .InsertAndAdvance(new CodeInstruction(OpCodes.Call, Transpilers.EmitDelegate(ModifyHeight).operand))
+    .InsertAndAdvance(new CodeInstruction(OpCodes.Stloc_S, 13))
+    .InstructionEnumeration();
+
 }
 
 [HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.Pregenerate))]
@@ -96,34 +110,39 @@ public class SetBiomeOffsets
     BiomeCalculator.Offsets[Heightmap.Biome.Ocean] = Random.Range(-10000, 10000);
   }
 }
-[HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.GetBiome), typeof(float), typeof(float), typeof(float), typeof(bool))]
 public class GetBiomeWG
 {
-  static bool Prefix(WorldGenerator __instance, float wx, float wy, float oceanLevel, bool waterAlwaysOcean, ref Heightmap.Biome __result)
+  internal static bool CalculateBiome(WorldGenerator __instance, float wx, float wy, float oceanLevel, bool waterAlwaysOcean, ref Heightmap.Biome __result)
   {
     if (__instance.m_world.m_menu) return true;
-    if (!Configuration.DataWorld) return true;
     if (waterAlwaysOcean && __instance.GetHeight(wx, wy) <= oceanLevel)
     {
       __result = Heightmap.Biome.Ocean;
       return false;
     }
-    if (Configuration.LegacyGeneration)
-      __result = BiomeCalculator.GetLegacy(__instance, wx, wy);
-    else
-      __result = BiomeCalculator.Get(__instance, wx, wy);
+    __result = BiomeCalculator.Get(__instance, wx, wy);
+    return false;
+  }
+
+  internal static bool CalculateLegacyBiome(WorldGenerator __instance, float wx, float wy, float oceanLevel, bool waterAlwaysOcean, ref Heightmap.Biome __result)
+  {
+    if (__instance.m_world.m_menu) return true;
+    if (waterAlwaysOcean && __instance.GetHeight(wx, wy) <= oceanLevel)
+    {
+      __result = Heightmap.Biome.Ocean;
+      return false;
+    }
+    __result = BiomeCalculator.GetLegacy(__instance, wx, wy);
     return false;
   }
 }
 
-[HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.GetAshlandsOceanGradient), typeof(float), typeof(float))]
 public class GetAshlandsOceanGradient
 {
-  static bool Prefix(float x, float y, ref float __result)
+  internal static bool CalculateGradient(float x, float y, ref float __result)
   {
     var wg = WorldGenerator.instance;
     if (wg.m_world.m_menu) return true;
-    if (!Configuration.DataWorld) return true;
     __result = BiomeCalculator.GetBoiling(wg, x, y);
     return false;
   }
@@ -131,10 +150,20 @@ public class GetAshlandsOceanGradient
 
 public class BiomeCalculator
 {
-  public static List<WorldEntry> GetData() => Data ?? WorldManager.DefaultEntries;
-  public static List<WorldEntry>? Data = null;
+  public static List<WorldEntry> GetBiomeData() => BiomeData ?? WorldManager.DefaultEntries;
+  public static List<WorldEntry>? BiomeData = null;
+  public static List<WorldEntry>? TerritoryData = null;
+  public static List<WorldEntry>? AltBiomeData = null;
+  public static bool HasAltBiomeData => AltBiomeData != null && AltBiomeData.Count > 0;
   public static bool CheckAngles = false;
   public static Dictionary<Heightmap.Biome, float> Offsets = [];
+
+  public static void SetData(List<WorldEntry> data)
+  {
+    BiomeData = [.. data.Where(item => item.biome != Heightmap.Biome.None)];
+    TerritoryData = [.. data.Where(item => item.territory != "")];
+    AltBiomeData = [.. data.Where(item => item.altBiomes.Length > 0)];
+  }
 
   private static float GetOffset(WorldGenerator obj, Heightmap.Biome biome)
   {
@@ -146,14 +175,36 @@ public class BiomeCalculator
   public static Heightmap.Biome Get(WorldGenerator obj, float wx, float wy)
   {
     var angle = Mathf.Atan2(wx, wy);
-    return GetEntry(obj, wx, wy, angle)?.biome ?? Heightmap.Biome.Ocean;
+    return GetEntry(obj, GetBiomeData(), wx, wy, angle)?.biome ?? Heightmap.Biome.Ocean;
+  }
+  public static WorldEntry? GetTerritoryEntry(WorldGenerator wg, float wx, float wy)
+  {
+    if (TerritoryData == null || TerritoryData.Count == 0)
+      return null;
+    var angle = Mathf.Atan2(wx, wy);
+    return GetEntry(wg, TerritoryData, wx, wy, angle);
+  }
+  public static WorldEntry? GetAltBiomeEntry(WorldGenerator wg, float wx, float wy)
+  {
+    if (AltBiomeData == null || AltBiomeData.Count == 0)
+      return null;
+    var angle = Mathf.Atan2(wx, wy);
+    return GetEntry(wg, AltBiomeData, wx, wy, angle);
+  }
+  public static TerritoryData? GetTerritory(float wx, float wy)
+  {
+    var wg = WorldGenerator.instance;
+    if (wg == null || wg.m_world.m_menu) return null;
+    var entry = GetTerritoryEntry(wg, wx, wy);
+    if (entry == null) return null;
+    return TerritoryManager.TryGetData(entry.territory, out var territory) ? territory : null;
   }
   // Bit annoying to maintain two versions of the same code.
   // But biome generation is performance critical so trying to keep it simple.
   public static Heightmap.Biome GetLegacy(WorldGenerator obj, float wx, float wy)
   {
     var worldAngle = Mathf.Atan2(wx, wy);
-    var data = GetData();
+    var data = GetBiomeData();
     var sx = wx * WorldInfo.Stretch;
     var sy = wy * WorldInfo.Stretch;
     var magnitude = new Vector2(sx, sy).magnitude;
@@ -208,7 +259,7 @@ public class BiomeCalculator
   public static float GetBoiling(WorldGenerator obj, float wx, float wy)
   {
     var angle = Mathf.Atan2(wx, wy);
-    var item = GetEntry(obj, wx, wy, angle);
+    var item = GetEntry(obj, GetBiomeData(), wx, wy, angle);
     if (item == null || item.boiling <= 0f) return -1f;
     var sx = wx * WorldInfo.Stretch;
     var sy = wy * WorldInfo.Stretch;
@@ -218,12 +269,34 @@ public class BiomeCalculator
       min += Mathf.Sin(angle * item.wiggleDistanceLength) * item.wiggleDistanceWidth;
     else if (min == 0f)
       min = -0.1f; // To handle the center (0,0) correctly.
-    return item.boiling * (dist - min) / 300f;
+    var edge = dist - min;
+    if (item.hasRectangle)
+    {
+      var rectEdge = RectangleEdge(item, sx, sy);
+      edge = item.minDistance > 0f ? Mathf.Min(edge, rectEdge) : rectEdge;
+    }
+    return item.boiling * edge / 300f;
   }
 
-  private static WorldEntry? GetEntry(WorldGenerator obj, float wx, float wy, float worldAngle)
+  // Distance to the nearest (wiggled) rectangle edge, positive inside.
+  private static float RectangleEdge(WorldEntry item, float sx, float sy)
   {
-    var data = GetData();
+    var dx = sx - item.centerX;
+    var dy = sy - item.centerY;
+    var lx = dx * item.rotationCos - dy * item.rotationSin;
+    var ly = dx * item.rotationSin + dy * item.rotationCos;
+    var limitX = item.halfSizeX;
+    var limitY = item.halfSizeY;
+    if (item.wiggleRectangleWidth > 0f)
+    {
+      limitX += Mathf.Sin(ly / item.wiggleRectangleLength) * item.wiggleRectangleWidth;
+      limitY += Mathf.Sin(lx / item.wiggleRectangleLength) * item.wiggleRectangleWidth;
+    }
+    return Mathf.Min(limitX - Mathf.Abs(lx), limitY - Mathf.Abs(ly));
+  }
+
+  private static WorldEntry? GetEntry(WorldGenerator obj, List<WorldEntry> data, float wx, float wy, float worldAngle)
+  {
     var sx = wx * WorldInfo.Stretch;
     var sy = wy * WorldInfo.Stretch;
     var magnitude = new Vector2(sx, sy).magnitude;
@@ -253,6 +326,7 @@ public class BiomeCalculator
       }
       var distOk = mag > min && (max >= radius || mag < max);
       if (!distOk) continue;
+      if (item.hasRectangle && RectangleEdge(item, sx, sy) <= 0f) continue;
       if (CheckAngles)
       {
         min = item.minSector;

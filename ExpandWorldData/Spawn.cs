@@ -6,13 +6,15 @@ using Data;
 
 using DataOverride = System.Func<Data.DataEntry?, string, Data.DataEntry?>;
 using Service;
+using Common;
+using ExpandWorldData.Data;
 
 namespace ExpandWorldData;
 
 // Most of the custom object spawning should be done here because there are many pitfalls:
 // 1. If custom data is used, ghost init is not used and must be done manually.
 // 2. On ghost spawning mode, created objects must be either stored or instantly destroyed.
-public class Spawn
+public class Create
 {
   public static bool IgnoreHealth = false;
   public static void Blueprint(string name, Vector3 pos, Quaternion rot, Vector3 scale, int seed, DataOverride dataOverride, Func<string, string> prefabOverride, List<GameObject>? spawned)
@@ -228,5 +230,21 @@ public class Spawn
       if (rng <= 0f) return swap.Item2;
     }
     return swaps[swaps.Count - 1].Item2;
+  }
+
+  public static DataEntry? GetData(Dictionary<string, List<Tuple<float, DataEntry?>>> data, string prefab)
+  {
+    DataEntry? result = null;
+    if (data.TryGetValue("all", out var d))
+      result = DataHelper.Merge(result, RandomizeData(d));
+    var components = ValueGroups.GetComponents(prefab);
+    foreach (var component in components)
+    {
+      if (data.TryGetValue(component, out d))
+        result = DataHelper.Merge(result, RandomizeData(d));
+    }
+    if (data.TryGetValue(prefab, out d))
+      result = DataHelper.Merge(result, RandomizeData(d));
+    return result;
   }
 }

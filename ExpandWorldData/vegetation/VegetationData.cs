@@ -3,14 +3,22 @@ using System.ComponentModel;
 using Service;
 using Data;
 using UnityEngine;
+using YamlDotNet.Serialization;
+using Common;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Vegetation;
 
-public class VegetationData
+public class VegetationYaml
 {
   public string prefab = "";
+
+  [YamlMember(DefaultValuesHandling = DefaultValuesHandling.Preserve)]
   public bool enabled = true;
+
+  [YamlMember(DefaultValuesHandling = DefaultValuesHandling.Preserve)]
   public float min = 1f;
+
+  [YamlMember(DefaultValuesHandling = DefaultValuesHandling.Preserve)]
   public float max = 1f;
   [DefaultValue(false)]
   public bool forcePlacement = false;
@@ -30,6 +38,8 @@ public class VegetationData
 
   [DefaultValue("")]
   public string biomeArea = "";
+  [DefaultValue("")]
+  public string altBiome = "";
   [DefaultValue(true)]
   public bool blockCheck = true;
   [DefaultValue(0f)]
@@ -76,12 +86,12 @@ public class VegetationData
   public bool clearArea = false;
   [DefaultValue(0f)]
   public float clearRadius = 0f;
-  [DefaultValue("")]
-  public string requiredGlobalKey = "";
-  [DefaultValue("")]
-  public string forbiddenGlobalKey = "";
-  [DefaultValue("")]
-  public string data = "";
+  [DefaultValue(null)]
+  public StringList? requiredGlobalKeys = null;
+  [DefaultValue(null)]
+  public StringList? forbiddenGlobalKeys = null;
+  [DefaultValue(null)]
+  public DataField? data = null;
   [DefaultValue(false)]
   public bool surroundCheckVegetation = false;
   [DefaultValue(20f)]
@@ -98,17 +108,19 @@ public class VegetationData
   public float centerX = 0f;
   [DefaultValue(0f)]
   public float centerY = 0f;
+  [DefaultValue("")]
+  public string drops = "";
 }
 
 public class VegetationExtra
 {
-  public List<string>? requiredGlobalKeys;
-  public List<string>? forbiddenGlobalKeys;
+  public List<string[]>? requiredGlobalKeys;
+  public List<string[]>? forbiddenGlobalKeys;
   public DataEntry? data;
-  public Range<Vector3>? scale;
+  public ValueRange<Vector3>? scale;
   public float clearRadius = 0;
   public bool clearArea = false;
-  public Range<float>? distance;
+  public ValueRange<float>? distance;
   public Vector2? center;
 
   public bool IsDistanceOk(Vector3 pos)

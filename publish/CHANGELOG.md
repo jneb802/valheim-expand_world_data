@@ -1,18 +1,39 @@
-- v1.57
-  - Fixes for the new update.
-  - Fixes compatibility issue with Better Continents mod.
+- v1.80
+  - Adds persistent event support (`expand_persistent_events.yaml`).
+  - Fixes error when environment aurora blending exceeded Unity's limit.
 
-- v1.56
-  - Fixes default terrain color being color that is considered lava. Sorry for the issue!
-  - This caused entire Meadows to turn into lava for some older configs that did not specify terrain color.
+- v1.79
+  - BREAKING CHANGE: Drop entries now automatically apply to the same prefab as the drop entry name.
+  - Adds AND/OR support for "required" and "forbidden" fields. Within row, one requirement must be met. Across rows, all rows must be satisfied. Existing configurations are automatically migrated.
+  - Adds new fields `forbiddenEnvironments`, `forbiddenGlobalKeys`, `requiredLocations`, `forbiddenLocations`, `requiredObjects` and `forbiddenObjects` to spawns.
+  - Adds new field `forbiddenEnvironments` to events.
+  - Renames event required fields to match new naming convention. Existing configurations are automatically migrated.
+  - Renames `requiredGlobalKey` and `forbiddenGlobalKey` of spawns and vegetation to `requiredGlobalKeys` and `forbiddenGlobalKeys`. Existing configurations are automatically migrated.
+  - Adds new field `levelOnlyChance` to drop entries.
+  - Adds data support to drop entries.
+  - Adds shorthand (`type, key, value`) and inline data support to data fields of vegetation, spawns, locations and drops.
+  - Fixes alternative biome migration for locations and vegetations possibly affecting custom entries. Thanks warp!
+  - Fixes most alternative biomes missing on world load.
+  - Fixes Infinity Hammer "Ignore no build" not ignoring no build zones.
+  - Fixes custom item data not working on data entries. Thanks Zeall!
+  - Optimizes world load to not apply extra refresh.
 
-- v1.55
-  - Adds new color fields using a simple "r, g, b, a" format to declutter the yaml files.
-  - Adds water color support.
-  - Adds support for sending location and vegetation IDs to admin clients with Server Devcommands mod installed.
+- v1.78
+  - Hotfix.
 
-- v1.54
-  - Adds experimental API for other mods to directly add new biomes and modify world generation
+- v1.77
+  - Fixes blueprint locations being in the same group for location "distance from similar" checks.
+  - Fixes environments not resetting after changes.
 
-- v1.53
-  - Fixed for the new update.
+- v1.76
+  - Fixes error when trying to override container inventory.
+  - Removes obsolete fields `addLocations` and `addVegetation` from altbiomes yaml.
+
+- v1.75
+  - Fixes custom location icons not working. Thanks sighsorry!
+  - Fixes custom location group system not working.
+  - Fixes error on CleanGhostInit (now should how warning instead).
+  - Fixes commands `ew_spawns`, `ew_test_spawn` and `ew_try_spawn` missing.
+  - Fixes changes to non-world data like clutter triggering full refresh.
+  - Reworks data system to match Expand World Prefabs mod.
+  - Reworks the world refresh system to be shared with Expand World Size mod (no double refresh).

@@ -8,35 +8,77 @@ using Service;
 using UnityEngine;
 using Data;
 using SoftReferenceableAssets;
+using Common;
+using ExpandWorldData.Biome;
+using ExpandWorldData.Clutter;
+using ExpandWorldData.AltBiomes;
+using ExpandWorldData.Vegetation;
+using ExpandWorldData.Locations;
+using ExpandWorldData.Migration;
+using ExpandWorldData.Environment;
+using ExpandWorldData.Territory;
+using ExpandWorldData.World;
+using ExpandWorldData.Dungeon;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Data;
 
+// Load order (vanilla calls, with EWD hooks).
+// Server:
+// 1. ZNet.Awake -> WorldGenerator.Initialize
+//    - Pregenerate needs biome, territory and world data.
+//    - EnvMan not initialized yet so can't fully initialize biomes.
+// 2. ZoneSystem.Awake: AltBiomeList.Awake fills AltBiomeList.m_altBiomes with vanilla alt biomes.
+//    - Alt biomes can't be changed before this.
+// 3. ZoneSystem.Start
+//    - SetupLocations adds the locations and vegetation of vanilla alt biomes.
+//    - Default data is available, All data can be loaded.
+// 4. ZNet.Start -> ServerLoadWorld
+//    - Locations are generated, must be loaded before this.
+//    - Alternative biomes are generated, must be loaded before this.
+//
+// Client:
+// 1. ZNet.Awake: no world generator yet.
+// 2. ZoneSystem.Awake and ZoneSystem.Start: as on server, but no configs are read.
+// 3. ServerSync configs arrive before PeerInfo; FromSetting applies them.
+// 4. RPC_PeerInfo -> WorldGenerator.Initialize (VersionSetup, Pregenerate) -> VerifyBiomeData.
 
 [HarmonyPatch(typeof(DungeonDB), nameof(DungeonDB.Start)), HarmonyPriority(Priority.VeryLow)]
 public class InitializeRooms
 {
   static void Postfix()
   {
-    RoomLoading.Initialize();
+    RoomManager.Initialize();
     // Dungeons require room names to be loaded.
-    Dungeon.Loader.Initialize();
+    DungeonManager.Initialize();
   }
 }
 
+// This triggers before Pregenerate and alternative biome setup.
 [HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.VersionSetup)), HarmonyPriority(Priority.VeryLow)]
 public class InitializeWorld
 {
+  static void Prefix(WorldGenerator __instance)
+  {
+    if (__instance.m_world.m_menu) return;
+    Yaml.WorldLoading = true;
+    Yaml.WorldLoadedAt = DateTime.MaxValue;
+  }
+
   // River generation requires biome and world data being loaded.
   // Saving is done later because that requires environments.
-  static void Postfix()
+  static void Postfix(WorldGenerator __instance)
   {
-    WorldInfo.CheckPatches(EWD.Harmony);
-    // Only called for server so no need to check.
-    BiomeManager.FromFile();
-    WorldManager.FromFile();
+    if (__instance.m_world.m_menu) return;
+    // Before anything reads the files.
+    Migrations.RunFiles();
+    // No-ops on clients, which get the data from the server.
+    BiomeManager.ReadConfigs();
+    TerritoryManager.ReadConfigs();
+    WorldManager.ReadConfigs();
+    // Pregenerate runs right after this.
+    Refresh.Apply(Regen.Patches);
   }
 }
-
 
 [HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.Start)), HarmonyPriority(Priority.VeryLow)]
 public class InitializeContent
@@ -44,25 +86,48 @@ public class InitializeContent
   static void Postfix()
   {
     AddEmptyAssetReference();
+
+    // 1) Initialize managers (both client and server; snapshots + arms client sync gate).
+    EnvironmentManager.Initialize();
+    BiomeManager.Initialize();
+    Event.EventManager.Initialize();
+    PersistentEvents.PersistentEventManager.Initialize();
+    AltBiomeManager.Initialize();
+    // Clutter must be here because since SetupLocations adds prefabs to the list.
+    ClutterManager.Initialize();
+    VegetationManager.Initialize();
+    LocationManager.Initialize();
+    NoBuildManager.Initialize();
+    LocationClientData.Initialize();
+
+    // 1b) All managers are initialized now, so any sync data that arrived early can be replayed.
+    SyncedDataManager.PostInitialize();
+    NoBuildManager.ApplyPending();
+    LocationClientData.ApplyPending();
+
+    // 2) Server: read configs synchronously, creating missing files (no client sync gating needed).
     if (Helper.IsServer())
     {
+      BiomeManager.CompleteDefaultConfig();
+
       DataLoading.LoadEntries();
-      EnvironmentManager.ToFile();
-
-      EnvironmentManager.FromFile();
+      Migrations.RunVanilla();
+      EnvironmentManager.ReadConfigs();
+      ClutterManager.ReadConfigs();
+      VegetationManager.ReadConfigs();
+      LocationManager.ReadConfigs();
+      AltBiomeManager.ReadConfigs();
+      PersistentEvents.PersistentEventManager.ReadConfigs();
+      // After locations so that location groups are known.
+      Spawn.SpawnManager.ReadConfigs();
       BiomeManager.LoadEnvironments();
-      BiomeManager.ToFile();
-      WorldManager.ToFile();
-
-      // These are here to not have to clear location lists (slightly better compatibility).
-      VegetationLoading.Initialize();
 
       // Dungeon and room data is handled elsewhere.
     }
-    // Clutter must be here because since SetupLocations adds prefabs to the list.
-    ClutterManager.Initialize();
-    ZoneSystem.instance.m_locations = ZoneSystem.instance.m_locations.Where(loc => loc.m_prefab.IsValid).ToList();
-    LocationLoading.Initialize();
+    // Alt biomes not generated yet, so refresh not needed.
+    Refresh.Clear();
+    Refresh.Apply(Regen.Patches);
+    Yaml.WorldLoadedAt = DateTime.UtcNow;
   }
 
   // Blueprints will use empty asset, which must be added to prevent errors.
@@ -94,15 +159,26 @@ public class InitializeContent
   }
 }
 
-[HarmonyPatch(typeof(SpawnSystem), nameof(SpawnSystem.UpdateSpawning))]
-public class Spawn_WaitForConfigSync
+[HarmonyPatch(typeof(ZNet), nameof(ZNet.Shutdown))]
+public class CleanupOnShutdown
 {
-  static bool Prefix() => DataManager.IsReady;
+  static void Postfix()
+  {
+    Yaml.WorldLoading = false;
+    Yaml.WorldLoadedAt = DateTime.MinValue;
+    Migrations.Reset();
+    NoBuildManager.CleanUp();
+    LocationClientData.CleanUp();
+    LocationManager.CleanUp();
+    VegetationManager.CleanUp();
+    AltBiomeManager.CleanUp();
+    SyncedDataManager.CleanUpAll();
+    DataManager.WarnedObjects.Clear();
+  }
 }
+
 public class DataManager : MonoBehaviour
 {
-  public static bool IsReady => EWD.ConfigSync.IsSourceOfTruth || EWD.ConfigSync.InitialSyncDone;
-
   private static readonly Heightmap.Biome DefaultMax =
     Heightmap.Biome.AshLands | Heightmap.Biome.BlackForest | Heightmap.Biome.DeepNorth |
     Heightmap.Biome.Meadows | Heightmap.Biome.Mistlands | Heightmap.Biome.Mountain |
@@ -198,6 +274,7 @@ public class DataManager : MonoBehaviour
   public static Heightmap.Biome ToBiomes(string biomeStr, string fileName)
   {
     Heightmap.Biome result = 0;
+    if (string.Equals(biomeStr, "None", StringComparison.OrdinalIgnoreCase)) return result;
     if (biomeStr == "")
     {
       foreach (var biome in BiomeManager.BiomeToDisplayName.Keys)
@@ -237,6 +314,9 @@ public class DataManager : MonoBehaviour
   {
     if (ZNetScene.instance.m_namedPrefabs.TryGetValue(str.GetStableHashCode(), out var obj))
       return obj;
+    // Game is missing these at least now.
+    else if (str == "hole_destructableDoor" || str == "hole_destructableDoor1" || str == "hole_destructableDoor2")
+      return null;
     else
       Log.Warning($"{fileName}: Prefab {str} not found!");
     return null;
@@ -273,39 +353,41 @@ public class DataManager : MonoBehaviour
   {
     if (ZNetView.m_ghostInit) CleanGhostInit(obj.GetComponent<ZNetView>());
   }
+
+  public static readonly HashSet<string> WarnedObjects = [];
   public static void CleanGhostInit(ZNetView view)
   {
     if (ZNetView.m_ghostInit && view)
     {
       view.m_ghost = true;
-      view.GetZDO().Created = false;
-      ZNetScene.instance.m_instances.Remove(view.GetZDO());
+      var zdo = view.GetZDO();
+      if (zdo == null)
+      {
+        var name = Utils.GetPrefabName(view.gameObject);
+        if (!WarnedObjects.Contains(name))
+        {
+          Log.Warning($"Object {name} has no ZDO during ghost init. Possible issue.");
+          WarnedObjects.Add(name);
+        }
+        return;
+      }
+      zdo.Created = false;
+      ZNetScene.instance.m_instances.Remove(zdo);
     }
   }
-  public static List<U> ReadData<T, U>(string pattern, Func<T, string, U> converter)
+  public static Dictionary<string, string>? Read(string pattern)
   {
     if (!Directory.Exists(Yaml.BaseDirectory))
       Directory.CreateDirectory(Yaml.BaseDirectory);
-    var data = Directory.GetFiles(Yaml.BaseDirectory, pattern, SearchOption.AllDirectories).Reverse().SelectMany(name =>
+    try
     {
-      var fileName = Path.GetFileNameWithoutExtension(name);
-      return Yaml.Deserialize<T>(File.ReadAllText(name), fileName).Select(d => converter(d, fileName));
-    }).ToList();
-
-    return data;
-  }
-  public static string Read<T, U>(string pattern, Func<T, string, U> converter)
-  {
-    if (!Directory.Exists(Yaml.BaseDirectory))
-      Directory.CreateDirectory(Yaml.BaseDirectory);
-    var data = Directory.GetFiles(Yaml.BaseDirectory, pattern, SearchOption.AllDirectories).Reverse().Select(name =>
+      var files = Directory.GetFiles(Yaml.BaseDirectory, pattern, SearchOption.AllDirectories).Reverse().ToList();
+      return files.ToDictionary(Path.GetFileNameWithoutExtension, File.ReadAllText);
+    }
+    catch (Exception e)
     {
-      var fileName = Path.GetFileNameWithoutExtension(name);
-      var yaml = File.ReadAllText(name);
-      // Clients need data in a single string, so file specific verification must be done here.
-      var ok = Yaml.Deserialize<T>(File.ReadAllText(name), fileName).Select(d => converter(d, fileName)).Count() > 0;
-      return ok ? yaml : "";
-    });
-    return string.Join("\n", data) ?? "";
+      Log.Error(e.Message);
+      return null;
+    }
   }
 }

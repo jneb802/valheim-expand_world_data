@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Service;
@@ -15,14 +14,21 @@ public class DataHelper
     var name = Utils.GetPrefabName(obj);
     var prefab = name.GetStableHashCode();
     ZNetView.m_initZDO = ZDOMan.instance.CreateNewZDO(pos, prefab);
-    var pars = new ObjectParameters(name, "", ZNetView.m_initZDO);
-    if (data != null)
-      data.Write(pars, ZNetView.m_initZDO);
+    var f = new ObjectFunctions(name, [], ZNetView.m_initZDO);
+    // View defaults are applied first so a Resolve()d entry can selectively override them.
     ZNetView.m_initZDO.m_rotation = rot.eulerAngles;
-    ZNetView.m_initZDO.Type = data?.Priority ?? view.m_type;
-    ZNetView.m_initZDO.Distant = data?.Distant?.GetBool(pars) ?? view.m_distant;
-    ZNetView.m_initZDO.Persistent = data?.Persistent?.GetBool(pars) ?? view.m_persistent;
+    ZNetView.m_initZDO.Type = view.m_type;
+    ZNetView.m_initZDO.Distant = view.m_distant;
+    ZNetView.m_initZDO.Persistent = view.m_persistent;
     ZNetView.m_initZDO.m_prefab = prefab;
+
+    if (data != null)
+    {
+      ResolvedDataEntry resolved = new();
+      resolved.Load(data, f, ZNetView.m_initZDO);
+      resolved.Write(ZNetView.m_initZDO);
+    }
+
     if (view.m_syncInitialScale && scale != null)
       ZNetView.m_initZDO.Set(ZDOVars.s_scaleHash, scale.Value);
     ZNetView.m_initZDO.DataRevision = 0;
@@ -34,6 +40,17 @@ public class DataHelper
   {
     ZNetView.m_initZDO = null;
   }
+  public static DataEntry? Merge(DataEntry? first, DataEntry? second)
+  {
+    if (first == null) return second;
+    if (second == null) return first;
+    DataEntry result = new();
+    result.Load(first);
+    result.Load(second);
+    return result;
+  }
+
+  // Needed for EW spawns and events until they start using the new function.
   public static DataEntry? Merge(params DataEntry?[] datas)
   {
     var nonNull = datas.Where(d => d != null).ToArray();
@@ -46,23 +63,22 @@ public class DataHelper
   }
   public static bool Exists(int hash) => DataLoading.Data.ContainsKey(hash);
 
-  public static bool Match(int hash, ZDO zdo, Parameters pars)
+  public static bool Match(int hash, ZDO zdo, Functions f)
   {
     if (DataLoading.Data.TryGetValue(hash, out var data))
     {
-      return data.Match(pars, zdo);
+      return data.Match(f, zdo);
     }
     return false;
   }
   public static DataEntry? Get(string name, string fileName) => name == "" ? null : DataLoading.Get(name, fileName);
-
-  public static List<string>? GetValuesFromGroup(string group)
+  public static DataEntry? Get(DataField? field, string fileName)
   {
-    var hash = group.ToLowerInvariant().GetStableHashCode();
-    if (DataLoading.ValueGroups.TryGetValue(hash, out var values))
-      return values;
-    return null;
+    if (field == null) return null;
+    if (field.Inline != null) return new DataEntry(field.Inline);
+    return Get(field.Name ?? "", fileName);
   }
+
   // This is mainly used to simplify code.
   // Not very efficient because usually only a single prefab is used.
   // So only use when the result is cached.
@@ -74,13 +90,18 @@ public class DataHelper
   }
   private static void ResolvePrefabsSub(HashSet<string> prefabs, string value)
   {
-    if (value == "all" || ZNetScene.instance.m_namedPrefabs.ContainsKey(value.GetStableHashCode()))
+    // Components are added directly, as they are handled separately.
+    if (value == "all" || ValueGroups.IsComponentGroup(value))
+    {
+      prefabs.Add(value.ToLowerInvariant());
+      return;
+    }
+    if (ZNetScene.instance.m_namedPrefabs.ContainsKey(value.GetStableHashCode()))
     {
       prefabs.Add(value);
       return;
     }
-    var values = GetValuesFromGroup(value);
-    if (values != null)
+    if (ValueGroups.TryGet(value, out var values))
     {
       foreach (var v in values)
         ResolvePrefabsSub(prefabs, v);

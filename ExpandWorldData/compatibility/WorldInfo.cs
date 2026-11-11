@@ -1,10 +1,8 @@
 
+using ExpandWorldData.World;
 using HarmonyLib;
-using Service;
-using UnityEngine;
-using UnityEngine.Rendering;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Compatibility;
 
 public class WorldInfo
 {
@@ -28,32 +26,6 @@ public class WorldInfo
   public static void SetWaterLevel(float waterLevel)
   {
     WaterLevel = waterLevel;
-  }
-  public static void AutomaticRegenerate(Harmony harmony)
-  {
-    if (WorldGenerator.instance == null) return;
-    Log.Info("Regenerating the world.");
-    CheckPatches(harmony);
-    WorldGenerator.instance.Pregenerate();
-    foreach (var heightmap in Object.FindObjectsByType<Heightmap>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
-    {
-      heightmap.m_buildData = null;
-      heightmap.Regenerate();
-    }
-    WaterColor.Regenerate();
-    ClutterSystem.instance?.ClearAll();
-    if (Configuration.RegenerateMap) RegenerateMap();
-  }
-  public static void RegenerateMap()
-  {
-    if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null)
-      Minimap.instance?.GenerateWorldMap();
-  }
-  public static void CheckPatches(Harmony harmony)
-  {
-    GetAshlandsHeight.Patch(harmony, Configuration.AshlandsWidthRestriction, Configuration.AshlandsLengthRestriction);
-    CreateAshlandsGap.Patch(harmony, !Configuration.AshlandsGap);
-    CreateDeepNorthGap.Patch(harmony, !Configuration.DeepNorthGap);
   }
 }
 

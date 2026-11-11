@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using System.IO;
 using Service;
+using Common;
 
-namespace ExpandWorldData;
+namespace ExpandWorldData.Data;
 
 //<summary>External blueprint data from configs (not directly from the blueprint file).
 public class BlueprintMetaData(string[] snapPieces)
